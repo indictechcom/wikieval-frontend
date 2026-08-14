@@ -18,7 +18,7 @@ defineProps({
       variant="tonal"
       color="primary"
     >
-      {{ name }}: {{ value }}/10
+      {{ name }}: {{ value }}
     </v-chip>
   </div>
 </template>

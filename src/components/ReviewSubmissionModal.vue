@@ -26,14 +26,13 @@ const params = computed(() => scoring.value?.parameters || [])
 const maxScore = computed(() => scoring.value?.max_score ?? 0)
 const paramScores = ref({})
 
-// Weighted average of per-parameter 0–10 scores, scaled to the max score.
+// Final score = sum of the points awarded across parameters.
 const calculatedScore = computed(() => {
   if (!scoring.value) return 0
-  const weighted = params.value.reduce(
-    (sum, p) => sum + (Number(paramScores.value[p.name]) || 0) * (p.weight / 100),
+  return params.value.reduce(
+    (sum, p) => sum + (Number(paramScores.value[p.name]) || 0),
     0,
   )
-  return Math.round(weighted * (maxScore.value / 10))
 })
 
 watch(open, (isOpen) => {
@@ -89,6 +88,7 @@ async function submit() {
       <v-card-text class="pa-6">
         <ArticleMetadata
           :metadata="submission?.article_metadata || {}"
+          :rules="contest?.rules || {}"
           class="mb-2"
         />
         <div class="text-caption text-medium-emphasis mb-1">
@@ -113,22 +113,22 @@ async function submit() {
           <!-- Multi-parameter scoring -->
           <template v-if="scoring">
             <div class="text-caption text-medium-emphasis mb-2">
-              Score each parameter 0–10.
+              Award points for each parameter.
             </div>
             <div v-for="p in params" :key="p.name" class="mb-3">
               <div class="d-flex align-center justify-space-between">
                 <span class="text-body-2 font-weight-medium">
                   {{ p.name }}
-                  <span class="text-medium-emphasis">({{ p.weight }}%)</span>
+                  <span class="text-medium-emphasis">(max {{ p.points }})</span>
                 </span>
                 <span class="text-body-2 font-weight-bold">
-                  {{ paramScores[p.name] || 0 }}/10
+                  {{ paramScores[p.name] || 0 }}/{{ p.points }}
                 </span>
               </div>
               <v-slider
                 v-model="paramScores[p.name]"
                 :min="0"
-                :max="10"
+                :max="p.points"
                 :step="1"
                 color="primary"
                 hide-details

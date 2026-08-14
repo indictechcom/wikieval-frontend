@@ -16,10 +16,10 @@ const isEdit = computed(() => !!props.contest)
 const locked = computed(() => isEdit.value && props.contest.status !== 'pending')
 
 const DEFAULT_PARAMS = [
-  { name: 'Quality', weight: 40, description: 'Article structure & content quality' },
-  { name: 'Sources', weight: 30, description: 'References & citations' },
-  { name: 'Neutrality', weight: 20, description: 'Unbiased writing' },
-  { name: 'Formatting', weight: 10, description: 'Presentation & formatting' },
+  { name: 'Quality', points: 4, description: 'Article structure & content quality' },
+  { name: 'Sources', points: 3, description: 'References & citations' },
+  { name: 'Neutrality', points: 2, description: 'Unbiased writing' },
+  { name: 'Formatting', points: 1, description: 'Presentation & formatting' },
 ]
 
 const blankForm = () => ({
@@ -31,14 +31,13 @@ const blankForm = () => ({
   end_date: '',
   marks_setting_accepted: 10,
   marks_setting_rejected: 0,
-  max_score: 100,
-  min_score: 0,
   parameters: DEFAULT_PARAMS.map((p) => ({ ...p })),
   organizers: [],
   jury_members: [],
   min_byte_count: 0,
   min_reference_count: 0,
-  outreach_dashboard_url: '',
+  min_word_count: 0,
+  project_link: '',
 })
 
 function fromContest(c) {
@@ -57,12 +56,10 @@ function fromContest(c) {
     end_date: c.end_date || '',
     marks_setting_accepted: c.marks_setting_accepted ?? 10,
     marks_setting_rejected: c.marks_setting_rejected ?? 0,
-    max_score: sp.max_score ?? 100,
-    min_score: sp.min_score ?? 0,
     parameters: sp.parameters?.length
       ? sp.parameters.map((p) => ({
           name: p.name,
-          weight: p.weight,
+          points: p.points ?? 0,
           description: p.description || '',
         }))
       : DEFAULT_PARAMS.map((p) => ({ ...p })),
@@ -70,7 +67,8 @@ function fromContest(c) {
     jury_members: [...(c.jury_members || [])],
     min_byte_count: rules.min_byte_count ?? 0,
     min_reference_count: rules.min_reference_count ?? 0,
-    outreach_dashboard_url: c.outreach_dashboard_url || '',
+    min_word_count: rules.min_word_count ?? 0,
+    project_link: c.project_link || '',
   }
 }
 
@@ -89,12 +87,13 @@ const scoringModes = [
   { label: 'Multi-Parameter Scoring', value: 'multi_parameter' },
 ]
 
-const totalWeight = computed(() =>
-  form.value.parameters.reduce((sum, p) => sum + (Number(p.weight) || 0), 0),
+// Max score is the sum of the parameters' point allocations.
+const totalPoints = computed(() =>
+  form.value.parameters.reduce((sum, p) => sum + (Number(p.points) || 0), 0),
 )
 
 function addParameter() {
-  form.value.parameters.push({ name: '', weight: 0, description: '' })
+  form.value.parameters.push({ name: '', points: 0, description: '' })
 }
 function removeParameter(index) {
   if (form.value.parameters.length > 1) form.value.parameters.splice(index, 1)
@@ -109,10 +108,8 @@ const valid = computed(() => {
   if (!(f.name.trim() && f.project_name.trim() && f.start_date)) return false
   if (scoringMode.value === 'multi_parameter') {
     return (
-      Number(f.max_score) > 0 &&
-      Number(f.min_score) <= 0 &&
-      totalWeight.value === 100 &&
-      f.parameters.every((p) => p.name.trim())
+      totalPoints.value > 0 &&
+      f.parameters.every((p) => p.name.trim() && Number(p.points) > 0)
     )
   }
   return (
@@ -148,22 +145,22 @@ function buildPayload() {
       allowed_submission_type: f.allowed_submission_type,
       min_byte_count: f.min_byte_count,
       min_reference_count: f.min_reference_count,
+      min_word_count: f.min_word_count,
     },
     end_date: f.end_date || null,
     description: f.description.trim() || null,
-    outreach_dashboard_url: f.outreach_dashboard_url.trim() || null,
+    project_link: f.project_link.trim() || null,
   }
   if (scoringMode.value === 'multi_parameter') {
-    // Backend needs valid marks; map max/min onto them.
-    payload.marks_setting_accepted = Number(f.max_score)
-    payload.marks_setting_rejected = Number(f.min_score)
+    // Max score is the sum of parameter points; rejected submissions score 0.
+    payload.marks_setting_accepted = totalPoints.value
+    payload.marks_setting_rejected = 0
     payload.scoring_parameters = {
       enabled: true,
-      max_score: Number(f.max_score),
-      min_score: Number(f.min_score),
+      max_score: totalPoints.value,
       parameters: f.parameters.map((p) => ({
         name: p.name.trim(),
-        weight: Number(p.weight) || 0,
+        points: Number(p.points) || 0,
         description: p.description?.trim() || '',
       })),
     }
@@ -324,45 +321,19 @@ async function submit() {
 
               <!-- Multi-parameter -->
               <template v-else>
-                <v-row>
-                  <v-col cols="12" md="6">
-                    <v-text-field
-                      v-model.number="form.max_score"
-                      label="Maximum Score (accepted)"
-                      type="number"
-                      min="1"
-                      variant="outlined"
-                      density="comfortable"
-                      hint="Final score is scaled to this. Must be positive."
-                      persistent-hint
-                    />
-                  </v-col>
-                  <v-col cols="12" md="6">
-                    <v-text-field
-                      v-model.number="form.min_score"
-                      label="Rejected Score"
-                      type="number"
-                      max="0"
-                      variant="outlined"
-                      density="comfortable"
-                      hint="Zero or negative."
-                      persistent-hint
-                    />
-                  </v-col>
-                </v-row>
+                <div class="text-caption text-medium-emphasis mb-3">
+                  Allocate points to each parameter. The maximum score is their
+                  total; a jury awards up to that many points per parameter.
+                </div>
 
                 <div
                   class="d-flex align-center justify-space-between mt-2 mb-2"
                 >
                   <span class="text-subtitle-2 font-weight-medium">
-                    Parameters (weights must total 100%)
+                    Parameters
                   </span>
-                  <v-chip
-                    :color="totalWeight === 100 ? 'success' : 'error'"
-                    size="small"
-                    label
-                  >
-                    Total: {{ totalWeight }}%
+                  <v-chip color="primary" size="small" label>
+                    Maximum score: {{ totalPoints }}
                   </v-chip>
                 </div>
 
@@ -380,11 +351,10 @@ async function submit() {
                     style="max-width: 180px"
                   />
                   <v-text-field
-                    v-model.number="param.weight"
-                    label="Weight %"
+                    v-model.number="param.points"
+                    label="Points"
                     type="number"
-                    min="0"
-                    max="100"
+                    min="1"
                     variant="outlined"
                     density="compact"
                     hide-details
@@ -464,16 +434,27 @@ async function submit() {
                 density="comfortable"
               />
             </v-col>
+            <v-col cols="12" md="6">
+              <v-text-field
+                v-model.number="form.min_word_count"
+                label="Minimum Word Count"
+                type="number"
+                min="0"
+                placeholder="e.g. 300"
+                variant="outlined"
+                density="comfortable"
+              />
+            </v-col>
           </v-row>
 
           <v-text-field
-            v-model="form.outreach_dashboard_url"
-            label="Outreach Dashboard URL (optional)"
-            placeholder="https://outreachdashboard.wmflabs.org/courses/{school}/{course_slug}"
+            v-model="form.project_link"
+            label="Project Link (optional)"
+            placeholder="https://en.wikipedia.org/wiki/Wikipedia:WikiProject_..."
             type="url"
             variant="outlined"
             density="comfortable"
-            hint="Link this contest to an Outreach Dashboard course to show its stats in a dedicated tab."
+            hint="Link this contest to its project or campaign page."
             persistent-hint
           />
         </template>

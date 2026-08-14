@@ -120,6 +120,9 @@ const minRef = computed(
   () => rules.value.min_reference_count ?? contest.value?.min_reference_count ?? 0,
 )
 const minBytes = computed(() => rules.value.min_byte_count ?? 0)
+const minWords = computed(
+  () => rules.value.min_word_count ?? contest.value?.min_word_count ?? 0,
+)
 const scoring = computed(() => {
   const sp = contest.value?.scoring_parameters
   return sp && sp.enabled ? sp : null
@@ -293,15 +296,15 @@ watch(
         <p v-if="contest.end_date" class="mb-2">
           <strong>End Date:</strong> {{ formatDateTime(contest.end_date) }}
         </p>
-        <p v-if="contest.outreach_dashboard_url" class="mb-2">
-          <strong>Outreach Dashboard:</strong>
+        <p v-if="contest.project_link" class="mb-2">
+          <strong>Project Link:</strong>
           <a
-            :href="contest.outreach_dashboard_url"
+            :href="contest.project_link"
             target="_blank"
             rel="noopener noreferrer"
             class="ms-1"
           >
-            View course
+            View project
             <v-icon :icon="mdiOpenInNew" size="x-small" />
           </a>
         </p>
@@ -335,15 +338,9 @@ watch(
           <DetailSection title="Scoring System" :icon="mdiChartLine" fill-height>
             <!-- Multi-parameter scoring -->
             <template v-if="scoring">
-              <div class="d-flex ga-6 mb-3">
-                <div>
-                  <span class="text-medium-emphasis">Max score:</span>
-                  <strong class="text-primary ms-1">{{ scoring.max_score }}</strong>
-                </div>
-                <div>
-                  <span class="text-medium-emphasis">Rejected:</span>
-                  <strong class="text-primary ms-1">{{ scoring.min_score }}</strong>
-                </div>
+              <div class="mb-3">
+                <span class="text-medium-emphasis">Max score:</span>
+                <strong class="text-primary ms-1">{{ scoring.max_score }}</strong>
               </div>
               <div
                 v-for="p in scoring.parameters"
@@ -353,7 +350,7 @@ watch(
                 <div class="d-flex justify-space-between align-center">
                   <span class="font-weight-medium">{{ p.name }}</span>
                   <v-chip color="primary" size="x-small" label>
-                    {{ p.weight }}%
+                    {{ p.points }} pts
                   </v-chip>
                 </div>
                 <div v-if="p.description" class="text-caption text-medium-emphasis">
@@ -361,7 +358,8 @@ watch(
                 </div>
               </div>
               <div class="text-caption text-medium-emphasis mt-2">
-                Each parameter scored 0–10; weighted average scaled to max score.
+                A jury awards up to each parameter's points; the final score is
+                their sum (max {{ scoring.max_score }}).
               </div>
             </template>
 
@@ -423,8 +421,8 @@ watch(
         >
       </DetailSection>
 
-      <!-- Minimum size + reference count, side by side -->
-      <v-row v-if="minBytes > 0 || minRef > 0" class="mb-4">
+      <!-- Minimum size + reference + word count, side by side -->
+      <v-row v-if="minBytes > 0 || minRef > 0 || minWords > 0" class="mb-4">
         <v-col v-if="minBytes > 0" cols="12" md="6">
           <DetailSection
             title="Minimum Article Size"
@@ -450,6 +448,21 @@ watch(
               <v-icon :icon="mdiInformationOutline" size="x-small" />
               Submitted articles must have at least {{ minRef }} external
               references.
+            </p>
+          </DetailSection>
+        </v-col>
+
+        <v-col v-if="minWords > 0" cols="12" md="6">
+          <DetailSection
+            title="Minimum Word Count"
+            :icon="mdiFormatAlignLeft"
+            fill-height
+          >
+            <p class="font-weight-bold mb-1">{{ minWords }} words required</p>
+            <p class="text-body-2 text-medium-emphasis d-flex align-center ga-1">
+              <v-icon :icon="mdiInformationOutline" size="x-small" />
+              Submitted articles must have at least {{ minWords }} words of
+              readable prose.
             </p>
           </DetailSection>
         </v-col>

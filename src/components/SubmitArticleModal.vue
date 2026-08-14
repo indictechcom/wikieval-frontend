@@ -105,7 +105,10 @@ function back() {
           <div class="text-caption text-medium-emphasis mb-2">
             Review before submitting
           </div>
-          <ArticleMetadata :metadata="evaluation?.article_metadata || {}" />
+          <ArticleMetadata
+            :metadata="evaluation?.article_metadata || {}"
+            :rules="evaluation?.rules || {}"
+          />
         </template>
 
         <v-alert v-if="error" type="error" variant="tonal" class="mt-4">
