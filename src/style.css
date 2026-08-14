@@ -1,0 +1,5 @@
+/* Vuetify provides the reset, theming, and component styles.
+   Keep only app-wide tweaks here. */
+a {
+  text-decoration: none;
+}

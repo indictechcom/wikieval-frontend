@@ -1,0 +1,24 @@
+{
+  "name": "wikieval-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "build:toolforge": "vite build && cp dist/index.html ~/www/python/src/templates/index.html && cp -r dist/assets ~/www/python/src/static/"
+  },
+  "dependencies": {
+    "@mdi/js": "^7.4.47",
+    "axios": "^1.19.0",
+    "vue": "^3.5.40",
+    "vue-router": "^4.6.4",
+    "vuetify": "^4.1.9"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.8",
+    "vite": "^8.2.0",
+    "vite-plugin-vuetify": "^2.1.3"
+  }
+}
