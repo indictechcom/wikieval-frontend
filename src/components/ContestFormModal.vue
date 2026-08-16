@@ -151,20 +151,28 @@ watch(open, (isOpen) => {
   }
 })
 
+// The end as a UTC instant, pushed to :59 seconds so the whole final minute is
+// included (the time picker only captures minutes). null when no end is set.
+function endInstant(f) {
+  if (!f.end_date) return null
+  const iso = zonedToUtcIso(f.end_date, f.end_time, f.timezone)
+  return new Date(new Date(iso).getTime() + 59_000).toISOString()
+}
+
 function buildPayload() {
   const f = form.value
-  // When locked, only organizers/jury may change.
+  // Once started the config is locked, but the end date stays editable so a
+  // running contest can be extended or closed early.
   if (locked.value) {
-    return { organizers: f.organizers, jury_members: f.jury_members }
+    return {
+      organizers: f.organizers,
+      jury_members: f.jury_members,
+      end_date: endInstant(f),
+    }
   }
   // Convert the organizer's local wall-clock date/time to a UTC instant. The
-  // start begins at :00 of its minute; the end is pushed to :59 seconds so the
-  // whole final minute is included (the time picker only captures minutes).
+  // start begins at :00 of its minute; the end at :59 (see endInstant).
   const startIso = zonedToUtcIso(f.start_date, f.start_time, f.timezone)
-  let endIso = f.end_date
-    ? zonedToUtcIso(f.end_date, f.end_time, f.timezone)
-    : null
-  if (endIso) endIso = new Date(new Date(endIso).getTime() + 59_000).toISOString()
 
   const payload = {
     name: f.name.trim(),
@@ -179,7 +187,7 @@ function buildPayload() {
       min_reference_count: f.min_reference_count,
       min_word_count: f.min_word_count,
     },
-    end_date: endIso,
+    end_date: endInstant(f),
     description: f.description.trim() || null,
     project_link: f.project_link.trim() || null,
   }
@@ -236,9 +244,38 @@ async function submit() {
 
       <v-card-text class="pa-6">
         <v-alert v-if="locked" type="info" variant="tonal" class="mb-4">
-          This contest has started, so its configuration is locked. Only
-          organizers and jury members can be changed.
+          This contest has started, so its configuration is locked. You can still
+          change organizers, jury members, and the end date (e.g. to extend the
+          contest).
         </v-alert>
+
+        <!-- End date stays editable after start so the contest can be extended
+             or closed early. Times are in the contest's (fixed) timezone. -->
+        <template v-if="locked">
+          <div class="text-caption text-medium-emphasis mb-2">
+            End date/time — in {{ form.timezone }}
+          </div>
+          <v-row>
+            <v-col cols="8" md="8">
+              <v-text-field
+                v-model="form.end_date"
+                label="End Date"
+                type="date"
+                variant="outlined"
+                density="comfortable"
+              />
+            </v-col>
+            <v-col cols="4" md="4">
+              <v-text-field
+                v-model="form.end_time"
+                label="End Time"
+                type="time"
+                variant="outlined"
+                density="comfortable"
+              />
+            </v-col>
+          </v-row>
+        </template>
 
         <!-- Config fields (editable only while pending) -->
         <template v-if="!locked">
