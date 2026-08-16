@@ -24,6 +24,7 @@ import {
 import { getContest, startContest } from '../api/contests'
 import { listSubmissions } from '../api/submissions'
 import { contestStatus } from '../utils/contestStatus'
+import { formatInZone } from '../utils/timezone'
 import { useAuth } from '../composables/useAuth'
 import DetailSection from '../components/DetailSection.vue'
 import ContestFormModal from '../components/ContestFormModal.vue'
@@ -76,9 +77,15 @@ const canStart = computed(
   () => contest.value?.status === 'pending' && isOrganizer.value,
 )
 const canEdit = computed(() => isOrganizer.value)
-// Only active contests accept submissions.
+// Only contests that are active AND currently within their date window accept
+// submissions. `status.key` is 'current' while the window is open; 'upcoming'
+// before the start and 'past' once the end instant passes. The backend enforces
+// this too (services/submission.py), so this just hides the button early.
 const canSubmit = computed(
-  () => !!logged.value && contest.value?.status === 'active',
+  () =>
+    !!logged.value &&
+    contest.value?.status === 'active' &&
+    status.value.key === 'current',
 )
 
 // Jury members review submissions.
@@ -154,6 +161,12 @@ function formatDateTime(value) {
     })
     .toLowerCase()
   return `${date} at ${time} UTC`
+}
+
+// Contest window dates are shown in the contest's own timezone, with a label
+// (e.g. '24 Aug 2026, 23:59 IST').
+function formatWindow(value) {
+  return formatInZone(value, contest.value?.timezone)
 }
 
 async function load(id) {
@@ -291,10 +304,10 @@ watch(
           </v-chip>
         </p>
         <p v-if="contest.start_date" class="mb-2">
-          <strong>Start Date:</strong> {{ formatDateTime(contest.start_date) }}
+          <strong>Start Date:</strong> {{ formatWindow(contest.start_date) }}
         </p>
         <p v-if="contest.end_date" class="mb-2">
-          <strong>End Date:</strong> {{ formatDateTime(contest.end_date) }}
+          <strong>End Date:</strong> {{ formatWindow(contest.end_date) }}
         </p>
         <p v-if="contest.project_link" class="mb-2">
           <strong>Project Link:</strong>

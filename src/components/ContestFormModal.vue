@@ -2,7 +2,16 @@
 import { ref, computed, watch } from 'vue'
 import { mdiPlus, mdiPencil, mdiClose, mdiContentSave } from '@mdi/js'
 import { createContest, updateContest } from '../api/contests'
+import {
+  browserTimeZone,
+  canonicalZone,
+  timezoneList,
+  utcIsoToZoned,
+  zonedToUtcIso,
+} from '../utils/timezone'
 import UserAutocomplete from './UserAutocomplete.vue'
+
+const timezones = timezoneList()
 
 const open = defineModel({ type: Boolean, default: false })
 const props = defineProps({
@@ -27,8 +36,13 @@ const blankForm = () => ({
   project_name: '',
   description: '',
   allowed_submission_type: 'both',
+  // Dates/times are entered as wall-clock in `timezone`; converted to a UTC
+  // instant on submit. Defaults: start at 00:00, end at 23:59 of the chosen day.
+  timezone: browserTimeZone(),
   start_date: '',
+  start_time: '00:00',
   end_date: '',
+  end_time: '23:59',
   marks_setting_accepted: 10,
   marks_setting_rejected: 0,
   parameters: DEFAULT_PARAMS.map((p) => ({ ...p })),
@@ -46,14 +60,22 @@ function fromContest(c) {
     c.scoring_parameters && typeof c.scoring_parameters === 'object'
       ? c.scoring_parameters
       : {}
+  // Canonicalize so an older contest stored as e.g. Asia/Calcutta shows and
+  // re-saves as Asia/Kolkata (same instant, modern name).
+  const tz = canonicalZone(c.timezone) || browserTimeZone()
+  const start = utcIsoToZoned(c.start_date, tz)
+  const end = utcIsoToZoned(c.end_date, tz)
   return {
     ...blankForm(),
     name: c.name || '',
     project_name: c.project_name || '',
     description: c.description || '',
     allowed_submission_type: rules.allowed_submission_type || 'both',
-    start_date: c.start_date || '',
-    end_date: c.end_date || '',
+    timezone: tz,
+    start_date: start.date,
+    start_time: start.time || '00:00',
+    end_date: end.date,
+    end_time: end.time || '23:59',
     marks_setting_accepted: c.marks_setting_accepted ?? 10,
     marks_setting_rejected: c.marks_setting_rejected ?? 0,
     parameters: sp.parameters?.length
@@ -135,10 +157,20 @@ function buildPayload() {
   if (locked.value) {
     return { organizers: f.organizers, jury_members: f.jury_members }
   }
+  // Convert the organizer's local wall-clock date/time to a UTC instant. The
+  // start begins at :00 of its minute; the end is pushed to :59 seconds so the
+  // whole final minute is included (the time picker only captures minutes).
+  const startIso = zonedToUtcIso(f.start_date, f.start_time, f.timezone)
+  let endIso = f.end_date
+    ? zonedToUtcIso(f.end_date, f.end_time, f.timezone)
+    : null
+  if (endIso) endIso = new Date(new Date(endIso).getTime() + 59_000).toISOString()
+
   const payload = {
     name: f.name.trim(),
     project_name: f.project_name.trim(),
-    start_date: f.start_date,
+    timezone: f.timezone,
+    start_date: startIso,
     organizers: f.organizers,
     jury_members: f.jury_members,
     rules: {
@@ -147,7 +179,7 @@ function buildPayload() {
       min_reference_count: f.min_reference_count,
       min_word_count: f.min_word_count,
     },
-    end_date: f.end_date || null,
+    end_date: endIso,
     description: f.description.trim() || null,
     project_link: f.project_link.trim() || null,
   }
@@ -246,21 +278,53 @@ async function submit() {
             density="comfortable"
           />
 
+          <v-autocomplete
+            v-model="form.timezone"
+            :items="timezones"
+            label="Contest Timezone *"
+            variant="outlined"
+            density="comfortable"
+            hint="Start/end times below are in this timezone. Everyone sees the same deadline."
+            persistent-hint
+            class="mb-2"
+          />
+
           <v-row>
-            <v-col cols="12" md="6">
+            <v-col cols="8" md="8">
               <v-text-field
                 v-model="form.start_date"
-                label="Start Date * (UTC, YYYY-MM-DD)"
+                label="Start Date *"
                 type="date"
                 variant="outlined"
                 density="comfortable"
               />
             </v-col>
-            <v-col cols="12" md="6">
+            <v-col cols="4" md="4">
+              <v-text-field
+                v-model="form.start_time"
+                label="Start Time"
+                type="time"
+                variant="outlined"
+                density="comfortable"
+              />
+            </v-col>
+          </v-row>
+
+          <v-row>
+            <v-col cols="8" md="8">
               <v-text-field
                 v-model="form.end_date"
-                label="End Date (UTC, YYYY-MM-DD)"
+                label="End Date"
                 type="date"
+                variant="outlined"
+                density="comfortable"
+              />
+            </v-col>
+            <v-col cols="4" md="4">
+              <v-text-field
+                v-model="form.end_time"
+                label="End Time"
+                type="time"
                 variant="outlined"
                 density="comfortable"
               />

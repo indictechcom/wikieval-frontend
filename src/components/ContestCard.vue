@@ -14,19 +14,30 @@ const props = defineProps({
 const status = computed(() => contestStatus(props.contest))
 const submissionCount = computed(() => props.contest.submission_count ?? 0)
 
+// Contest window dates: shown in the contest's own timezone (day only).
+const dateInZone = (value) =>
+  new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: props.contest.timezone || 'UTC',
+  }).format(new Date(value))
+
+// The created-at metadata timestamp is shown in UTC (not a contest-window date).
 const dateUTC = (value) =>
-  new Date(value).toLocaleDateString('en-US', {
+  new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
     timeZone: 'UTC',
-  })
+  }).format(new Date(value))
 
 const dateRange = computed(() => {
   const { start_date, end_date } = props.contest
-  if (start_date && end_date) return `${dateUTC(start_date)} – ${dateUTC(end_date)}`
-  if (start_date) return `Starts ${dateUTC(start_date)}`
-  if (end_date) return `Ends ${dateUTC(end_date)}`
+  if (start_date && end_date)
+    return `${dateInZone(start_date)} – ${dateInZone(end_date)}`
+  if (start_date) return `Starts ${dateInZone(start_date)}`
+  if (end_date) return `Ends ${dateInZone(end_date)}`
   return ''
 })
 </script>
