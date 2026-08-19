@@ -17,6 +17,9 @@ const comment = ref('')
 const loading = ref(false)
 const error = ref('')
 
+// Editing an existing review vs a first-time review.
+const isEditing = computed(() => !!props.submission?.already_reviewed)
+
 // Multi-parameter scoring (when the contest is configured for it).
 const scoring = computed(() => {
   const sp = props.contest?.scoring_parameters
@@ -37,15 +40,21 @@ const calculatedScore = computed(() => {
 
 watch(open, (isOpen) => {
   if (isOpen) {
-    decision.value = 'accept'
+    const s = props.submission
+    // Editing an existing review: pre-fill with the previous decision/score/
+    // parameter scores/comment. First review: start from defaults.
+    const editing = s?.already_reviewed
+    decision.value = editing && s.status === 'rejected' ? 'reject' : 'accept'
     // Simple: default to accepted marks. Multi: starts at 0 (all sliders 0).
-    score.value = props.contest?.marks_setting_accepted ?? 0
-    paramScores.value = Object.fromEntries(params.value.map((p) => [p.name, 0]))
-    comment.value = ''
+    score.value = editing ? (s.score ?? 0) : (props.contest?.marks_setting_accepted ?? 0)
+    paramScores.value = Object.fromEntries(
+      params.value.map((p) => [p.name, editing ? (s.parameter_scores?.[p.name] ?? 0) : 0]),
+    )
+    comment.value = editing ? (s.review_comment ?? '') : ''
     error.value = ''
     loading.value = false
   }
-})
+}, { immediate: true })  // run on first mount too (modal opens with open=true)
 
 async function submit() {
   loading.value = true
@@ -80,7 +89,7 @@ async function submit() {
       <v-toolbar color="primary" density="comfortable">
         <v-icon :icon="mdiGavel" class="ms-4" />
         <v-toolbar-title class="font-weight-bold">
-          Review Submission
+          {{ isEditing ? 'Edit Review' : 'Review Submission' }}
         </v-toolbar-title>
         <v-btn :icon="mdiClose" variant="text" @click="open = false" />
       </v-toolbar>

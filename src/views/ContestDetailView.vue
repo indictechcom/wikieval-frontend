@@ -565,6 +565,16 @@ watch(
                 >
                   Review
                 </v-btn>
+                <v-btn
+                  v-else-if="s.reviewed_by_username === username"
+                  size="small"
+                  variant="text"
+                  color="primary"
+                  :prepend-icon="mdiPencil"
+                  @click="openReview(s)"
+                >
+                  Edit
+                </v-btn>
                 <span v-else class="text-medium-emphasis text-caption">
                   Reviewed
                 </span>
