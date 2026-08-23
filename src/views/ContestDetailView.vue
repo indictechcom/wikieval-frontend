@@ -20,6 +20,7 @@ import {
   mdiSend,
   mdiOpenInNew,
   mdiCommentQuoteOutline,
+  mdiDownload,
 } from '@mdi/js'
 import { getContest, startContest } from '../api/contests'
 import { listSubmissions } from '../api/submissions'
@@ -33,7 +34,7 @@ import ReviewSubmissionModal from '../components/ReviewSubmissionModal.vue'
 import ParameterScores from '../components/ParameterScores.vue'
 
 const route = useRoute()
-const { username, logged } = useAuth()
+const { username, logged, isSuperadmin } = useAuth()
 
 const contest = ref(null)
 const loading = ref(true)
@@ -98,6 +99,70 @@ const isJury = computed(
 const submissionStatusColor = (status) =>
   ({ accepted: 'success', rejected: 'error', pending: 'warning' })[status] ||
   'grey'
+
+// Contest organizers (incl. creator) and superadmins can export the full
+// submissions list as CSV. The backend already returns every submission to them.
+const canExport = computed(
+  () => (isOrganizer.value || isSuperadmin.value) && submissions.value.length > 0,
+)
+
+// Wrap a value for CSV: stringify, escape embedded quotes, and quote it. Guards
+// against values starting with =, +, -, @ (spreadsheet formula injection).
+function csvCell(value) {
+  let text = value == null ? '' : String(value)
+  if (/^[=+\-@]/.test(text)) text = `'${text}`
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+// Percent-decode a URL/title for readability (e.g. %E0%A8%AD -> ਭ). Falls back
+// to the raw value if it isn't validly encoded.
+function decode(value) {
+  if (!value) return ''
+  try {
+    return decodeURI(value)
+  } catch {
+    return value
+  }
+}
+
+function exportCsv() {
+  const headers = [
+    'Article',
+    'Article URL',
+    'By',
+    'Status',
+    'Score',
+    'Reviewed By',
+    'Review Comment',
+    'Submitted',
+  ]
+  const rows = submissions.value.map((s) => [
+    decode(s.article_metadata?.article_title || s.article_link),
+    decode(s.article_metadata?.article_url || s.article_link),
+    s.username,
+    s.status,
+    s.score ?? '',
+    s.reviewed_by_username || '',
+    s.review_comment || '',
+    s.submitted_at || '',
+  ])
+  const csv = [headers, ...rows]
+    .map((row) => row.map(csvCell).join(','))
+    .join('\r\n')
+
+  // Prepend a UTF-8 BOM so Excel renders non-Latin article titles correctly.
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const slug = (contest.value?.name || 'contest')
+    .replace(/[^\wÀ-￿ -]/g, '')
+    .trim()
+    .replace(/\s+/g, '_')
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${slug || 'contest'}_submissions.csv`
+  link.click()
+  URL.revokeObjectURL(url)
+}
 
 function openReview(submission) {
   reviewTarget.value = submission
@@ -506,6 +571,22 @@ watch(
         title="Submissions"
         :icon="mdiFileDocumentOutline"
       >
+        <template v-if="canExport" #actions>
+          <v-btn
+            variant="text"
+            color="white"
+            size="small"
+            density="comfortable"
+            icon
+            @click="exportCsv"
+          >
+            <v-icon :icon="mdiDownload" size="18" />
+            <v-tooltip activator="parent" location="bottom">
+              Export submissions as CSV
+            </v-tooltip>
+          </v-btn>
+        </template>
+
         <div v-if="submissionsLoading" class="d-flex justify-center py-4">
           <v-progress-circular indeterminate color="primary" size="28" />
         </div>

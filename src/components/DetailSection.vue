@@ -15,6 +15,8 @@ defineProps({
     <v-card-title class="bg-primary d-flex align-center ga-2 py-3">
       <v-icon :icon="icon" size="small" />
       <span class="text-body-1 font-weight-bold">{{ title }}</span>
+      <v-spacer />
+      <slot name="actions" />
     </v-card-title>
     <v-card-text class="pa-5">
       <slot />
