@@ -160,13 +160,16 @@ onMounted(async () => {
       No {{ tab }} contests available.
     </v-alert>
 
-    <div v-else>
-      <ContestCard
+    <v-row v-else>
+      <v-col
         v-for="contest in visible"
         :key="contest.id"
-        :contest="contest"
-      />
-    </div>
+        cols="12"
+        md="6"
+      >
+        <ContestCard :contest="contest" />
+      </v-col>
+    </v-row>
 
     <RequestRightsModal v-model="modalOpen" @submitted="onRequested" />
     <ContestFormModal v-model="createOpen" @saved="onCreated" />
