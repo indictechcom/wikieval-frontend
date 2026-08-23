@@ -32,6 +32,17 @@ export async function listSubmissions(contestId) {
   return data.submissions
 }
 
+// POST /api/contests/<contestId>/submissions/import — superadmin restore of one
+// exported row. Re-fetches the article's metadata and creates a pending
+// submission for `username`. Called one row at a time (client shows progress).
+export async function importSubmission(contestId, { articleLink, username }) {
+  const { data } = await client.post(
+    `/api/contests/${contestId}/submissions/import`,
+    { article_link: articleLink, username },
+  )
+  return data
+}
+
 // POST /api/submissions/<submissionId>/review — jury accept/reject.
 // decision is 'accept' or 'reject'; score, review_comment, parameter_scores optional.
 // Returns the updated submission object.

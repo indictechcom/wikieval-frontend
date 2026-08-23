@@ -21,6 +21,7 @@ import {
   mdiOpenInNew,
   mdiCommentQuoteOutline,
   mdiDownload,
+  mdiUpload,
 } from '@mdi/js'
 import { getContest, startContest } from '../api/contests'
 import { listSubmissions } from '../api/submissions'
@@ -163,6 +164,9 @@ function exportCsv() {
   link.click()
   URL.revokeObjectURL(url)
 }
+
+// Superadmin-only CSV import — handled on a dedicated page (/contests/:id/import).
+const canImport = computed(() => isSuperadmin.value)
 
 function openReview(submission) {
   reviewTarget.value = submission
@@ -571,8 +575,23 @@ watch(
         title="Submissions"
         :icon="mdiFileDocumentOutline"
       >
-        <template v-if="canExport" #actions>
+        <template v-if="canExport || canImport" #actions>
           <v-btn
+            v-if="canImport"
+            variant="text"
+            color="white"
+            size="small"
+            density="comfortable"
+            icon
+            :to="`/contests/${contest.id}/import`"
+          >
+            <v-icon :icon="mdiUpload" size="18" />
+            <v-tooltip activator="parent" location="bottom">
+              Import submissions from CSV
+            </v-tooltip>
+          </v-btn>
+          <v-btn
+            v-if="canExport"
             variant="text"
             color="white"
             size="small"

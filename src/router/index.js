@@ -24,6 +24,11 @@ const routes = [
     component: () => import("../views/LeaderboardView.vue"),
   },
   {
+    path: "/contests/:id/import",
+    name: "contest-import",
+    component: () => import("../views/ContestImportView.vue"),
+  },
+  {
     path: "/dashboard",
     name: "dashboard",
     component: () => import("../views/DashboardView.vue"),
