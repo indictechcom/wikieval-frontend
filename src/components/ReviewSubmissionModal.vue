@@ -1,7 +1,8 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { mdiClose, mdiGavel } from '@mdi/js'
+import { mdiClose, mdiGavel, mdiAutoFix } from '@mdi/js'
 import { reviewSubmission } from '../api/submissions'
+import { evaluateAuto, autoSummary } from '../utils/autoScore'
 import ArticleMetadata from './ArticleMetadata.vue'
 
 const open = defineModel({ type: Boolean, default: false })
@@ -29,6 +30,19 @@ const params = computed(() => scoring.value?.parameters || [])
 const maxScore = computed(() => scoring.value?.max_score ?? 0)
 const paramScores = ref({})
 
+// Per-parameter auto-scoring result against this submission's article metadata.
+// { matched: true|false|null } — null when the parameter has no auto rule or
+// the metric can't be read.
+const autoResults = computed(() => {
+  const meta = props.submission?.article_metadata || {}
+  const out = {}
+  for (const p of params.value) {
+    out[p.name] = p.auto ? evaluateAuto(p.auto, meta) : null
+  }
+  return out
+})
+const autoText = (p) => autoSummary(p.auto)
+
 // Final score = sum of the points awarded across parameters.
 const calculatedScore = computed(() => {
   if (!scoring.value) return 0
@@ -47,8 +61,14 @@ watch(open, (isOpen) => {
     decision.value = editing && s.status === 'rejected' ? 'reject' : 'accept'
     // Simple: default to accepted marks. Multi: starts at 0 (all sliders 0).
     score.value = editing ? (s.score ?? 0) : (props.contest?.marks_setting_accepted ?? 0)
+    const meta = s?.article_metadata || {}
     paramScores.value = Object.fromEntries(
-      params.value.map((p) => [p.name, editing ? (s.parameter_scores?.[p.name] ?? 0) : 0]),
+      params.value.map((p) => {
+        if (editing) return [p.name, s.parameter_scores?.[p.name] ?? 0]
+        // First review: pre-fill full points when an auto rule is satisfied.
+        const matched = p.auto ? evaluateAuto(p.auto, meta) : null
+        return [p.name, matched === true ? p.points : 0]
+      }),
     )
     comment.value = editing ? (s.review_comment ?? '') : ''
     error.value = ''
@@ -97,7 +117,7 @@ async function submit() {
       <v-card-text class="pa-6">
         <ArticleMetadata
           :metadata="submission?.article_metadata || {}"
-          :rules="contest?.rules || {}"
+          :rules="contest?.eligibility_rules || {}"
           class="mb-2"
         />
         <div class="text-caption text-medium-emphasis mb-1">
@@ -126,9 +146,29 @@ async function submit() {
             </div>
             <div v-for="p in params" :key="p.name" class="mb-3">
               <div class="d-flex align-center justify-space-between">
-                <span class="text-body-2 font-weight-medium">
+                <span class="text-body-2 font-weight-medium d-flex align-center ga-1">
                   {{ p.name }}
                   <span class="text-medium-emphasis">(max {{ p.points }})</span>
+                  <v-tooltip
+                    v-if="p.auto"
+                    location="top"
+                    :text="`Auto: ${autoText(p)}` +
+                      (autoResults[p.name] === true ? ' — met' :
+                       autoResults[p.name] === false ? ' — not met' : ' — not measurable')"
+                  >
+                    <template #activator="{ props: tip }">
+                      <v-chip
+                        v-bind="tip"
+                        size="x-small"
+                        variant="tonal"
+                        :color="autoResults[p.name] === true ? 'success'
+                          : autoResults[p.name] === false ? 'medium-emphasis' : 'warning'"
+                        :prepend-icon="mdiAutoFix"
+                      >
+                        auto
+                      </v-chip>
+                    </template>
+                  </v-tooltip>
                 </span>
                 <span class="text-body-2 font-weight-bold">
                   {{ paramScores[p.name] || 0 }}/{{ p.points }}
