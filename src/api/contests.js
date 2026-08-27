@@ -44,3 +44,10 @@ export async function startContest(id) {
   const { data } = await client.post(`/api/contests/${id}/start`)
   return data
 }
+
+// GET /api/eligibility-rules — the catalog of eligibility rules a creator can
+// add (each with a `type`: number | enum | boolean). Drives the contest form.
+export async function getEligibilityRules() {
+  const { data } = await client.get('/api/eligibility-rules')
+  return data.rules
+}

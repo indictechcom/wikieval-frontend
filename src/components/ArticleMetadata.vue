@@ -1,6 +1,11 @@
 <script setup>
 import { computed } from 'vue'
-import { mdiOpenInNew, mdiCheckCircle, mdiCloseCircle } from '@mdi/js'
+import {
+  mdiOpenInNew,
+  mdiCheckCircle,
+  mdiCloseCircle,
+  mdiInformationOutline,
+} from '@mdi/js'
 
 const props = defineProps({
   metadata: { type: Object, default: () => ({}) },
@@ -51,13 +56,30 @@ const rows = computed(() => [
     label: 'Word count',
     value: num(m.value.word_count),
     req: req(r.value.min_word_count, m.value.word_count),
+    hint: 'Total readable-prose words in the current article.',
   },
+  // The submitter's authored words during the contest window (per-user delta) —
+  // shown only when computed (present on newer submissions).
+  ...(m.value.submitter_contribution
+    ? [
+        {
+          label: 'Words added',
+          value: num(m.value.submitter_contribution.words_net),
+          hint: 'Words the submitter authored in this article during the contest period.',
+          highlight: true,
+        },
+      ]
+    : []),
   {
     label: 'References',
     value: `${num(totalRefs.value)} (${num(m.value.ref_new_count)} new, ${num(m.value.ref_reused_count)} reused)`,
     req: req(r.value.min_reference_count, totalRefs.value),
   },
-  { label: 'Images', value: num(m.value.image_count) },
+  {
+    label: 'Images',
+    value: num(m.value.image_count),
+    req: req(r.value.min_image_count, m.value.image_count),
+  },
   { label: 'Creator', value: m.value.creator || '—' },
   { label: 'Created', value: dateUTC(m.value.created_at) },
   {
@@ -101,9 +123,24 @@ const rows = computed(() => [
             <span v-else>{{ m.revision_id ?? '—' }}</span>
           </td>
         </tr>
-        <tr v-for="row in rows" :key="row.label">
-          <td class="text-medium-emphasis">{{ row.label }}</td>
-          <td class="font-weight-medium">
+        <tr v-for="row in rows" :key="row.label" :class="{ 'bg-primary-lighten-5': row.highlight }">
+          <td class="text-medium-emphasis">
+            <span class="d-inline-flex align-center ga-1">
+              {{ row.label }}
+              <v-tooltip v-if="row.hint" location="top" :text="row.hint" max-width="280">
+                <template #activator="{ props: tip }">
+                  <v-icon
+                    v-bind="tip"
+                    :icon="mdiInformationOutline"
+                    size="13"
+                    color="medium-emphasis"
+                    style="cursor: help"
+                  />
+                </template>
+              </v-tooltip>
+            </span>
+          </td>
+          <td :class="row.highlight ? 'font-weight-bold text-primary' : 'font-weight-medium'">
             <span class="d-inline-flex align-center ga-2">
               {{ row.value }}
               <v-chip

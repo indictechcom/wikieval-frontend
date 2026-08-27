@@ -7,7 +7,6 @@ import {
   mdiInformationOutline,
   mdiChartLine,
   mdiFormatAlignLeft,
-  mdiBookOpenVariant,
   mdiFileDocumentOutline,
   mdiLinkVariant,
   mdiFileOutline,
@@ -22,6 +21,8 @@ import {
   mdiCommentQuoteOutline,
   mdiDownload,
   mdiUpload,
+  mdiImageMultiple,
+  mdiAccountEdit,
 } from '@mdi/js'
 import { getContest, startContest } from '../api/contests'
 import { listSubmissions } from '../api/submissions'
@@ -58,9 +59,9 @@ const submissionsLoading = ref(false)
 const reviewOpen = ref(false)
 const reviewTarget = ref(null)
 
-// Derived contest fields (submission constraints live under `rules`).
+// Derived contest fields (submission constraints live under `eligibility_rules`).
 const rules = computed(() => {
-  const r = contest.value?.rules
+  const r = contest.value?.eligibility_rules
   return r && typeof r === 'object' ? r : {}
 })
 const organizers = computed(() => {
@@ -178,35 +179,24 @@ function onReviewed(updated) {
   if (i !== -1) submissions.value[i] = updated
   toast.value = { show: true, text: 'Submission reviewed.', color: 'success' }
 }
-const submissionType = computed(
-  () =>
-    rules.value.allowed_submission_type ||
-    contest.value?.allowed_submission_type ||
-    'both',
-)
+// Always shown; defaults to "both" when the rule isn't set (the backend default).
+const submissionType = computed(() => rules.value.allowed_submission_type || 'both')
 const submissionTypeLabel = computed(
   () =>
     ({
       new: 'New Articles Only',
-      expansion: 'Improved Articles Only',
-      both: 'Both (New Articles + Improved Articles)',
-    })[submissionType.value] || 'Both (New Articles + Improved Articles)',
+      expansion: 'Expansions Only',
+      both: 'Both (New + Expansions)',
+    })[submissionType.value] || 'Both (New + Expansions)',
 )
-const minRef = computed(
-  () => rules.value.min_reference_count ?? contest.value?.min_reference_count ?? 0,
-)
+const minRef = computed(() => rules.value.min_reference_count ?? 0)
 const minBytes = computed(() => rules.value.min_byte_count ?? 0)
-const minWords = computed(
-  () => rules.value.min_word_count ?? contest.value?.min_word_count ?? 0,
-)
+const minWords = computed(() => rules.value.min_word_count ?? 0)
+const minImages = computed(() => rules.value.min_image_count ?? 0)
+const authorOnly = computed(() => !!rules.value.author_only)
 const scoring = computed(() => {
   const sp = contest.value?.scoring_parameters
   return sp && sp.enabled ? sp : null
-})
-const rulesText = computed(() => {
-  const r = contest.value?.rules
-  if (typeof r === 'string') return r
-  return r?.text || contest.value?.contest_rules || ''
 })
 
 // Draft (pending) / Active / Upcoming / Past.
@@ -479,32 +469,22 @@ watch(
           >
             <p class="font-weight-bold mb-3">{{ submissionTypeLabel }}</p>
             <p class="text-body-2 text-medium-emphasis font-italic mb-1">
-              • <strong>New Articles</strong> = Completely new Wikipedia article
-              created during the contest.
+              • <strong>New</strong> = A Wikipedia article created during the
+              contest.
             </p>
             <p class="text-body-2 text-medium-emphasis font-italic">
-              • <strong>Improved Articles</strong> = An existing article improved
-              or expanded with substantial content.
+              • <strong>Expansion</strong> = An existing article improved or
+              expanded with substantial content.
             </p>
           </DetailSection>
         </v-col>
       </v-row>
 
-      <!-- Contest Rules -->
-      <DetailSection
-        v-if="rulesText"
-        title="Contest Rules"
-        :icon="mdiBookOpenVariant"
+      <!-- Eligibility rules -->
+      <v-row
+        v-if="minBytes > 0 || minRef > 0 || minWords > 0 || minImages > 0 || authorOnly"
+        class="mb-4"
       >
-        <pre
-          class="text-body-1"
-          style="white-space: pre-wrap; font-family: inherit"
-          >{{ rulesText }}</pre
-        >
-      </DetailSection>
-
-      <!-- Minimum size + reference + word count, side by side -->
-      <v-row v-if="minBytes > 0 || minRef > 0 || minWords > 0" class="mb-4">
         <v-col v-if="minBytes > 0" cols="12" md="6">
           <DetailSection
             title="Minimum Article Size"
@@ -545,6 +525,34 @@ watch(
               <v-icon :icon="mdiInformationOutline" size="x-small" />
               Submitted articles must have at least {{ minWords }} words of
               readable prose.
+            </p>
+          </DetailSection>
+        </v-col>
+
+        <v-col v-if="minImages > 0" cols="12" md="6">
+          <DetailSection
+            title="Minimum Image Count"
+            :icon="mdiImageMultiple"
+            fill-height
+          >
+            <p class="font-weight-bold mb-1">{{ minImages }} images required</p>
+            <p class="text-body-2 text-medium-emphasis d-flex align-center ga-1">
+              <v-icon :icon="mdiInformationOutline" size="x-small" />
+              Submitted articles must embed at least {{ minImages }} images.
+            </p>
+          </DetailSection>
+        </v-col>
+
+        <v-col v-if="authorOnly" cols="12" md="6">
+          <DetailSection
+            title="Author Only"
+            :icon="mdiAccountEdit"
+            fill-height
+          >
+            <p class="font-weight-bold mb-1">Creator submissions only</p>
+            <p class="text-body-2 text-medium-emphasis d-flex align-center ga-1">
+              <v-icon :icon="mdiInformationOutline" size="x-small" />
+              Only the article's creator may submit it to this contest.
             </p>
           </DetailSection>
         </v-col>

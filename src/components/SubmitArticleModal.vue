@@ -107,7 +107,7 @@ function back() {
           </div>
           <ArticleMetadata
             :metadata="evaluation?.article_metadata || {}"
-            :rules="evaluation?.rules || {}"
+            :rules="evaluation?.eligibility_rules || {}"
           />
         </template>
 
