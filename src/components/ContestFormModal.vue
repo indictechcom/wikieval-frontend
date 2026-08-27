@@ -188,8 +188,19 @@ function loadDefaults() {
   form.value.parameters = DEFAULT_PARAMS.map((p) => ({ ...p }))
 }
 
+// End must be on or after start (past dates are allowed). Compared as absolute
+// instants in the contest timezone. Empty end = open-ended = fine.
+const endBeforeStart = computed(() => {
+  const f = form.value
+  if (!f.start_date || !f.end_date) return false
+  const start = zonedToUtcIso(f.start_date, f.start_time || '00:00', f.timezone)
+  const end = zonedToUtcIso(f.end_date, f.end_time || '23:59', f.timezone)
+  return new Date(end) < new Date(start)
+})
+
 const valid = computed(() => {
-  if (locked.value) return true // only organizers/jury, always acceptable
+  if (endBeforeStart.value) return false
+  if (locked.value) return true // only organizers/jury/end-date, else acceptable
   const f = form.value
   if (!(f.name.trim() && f.project_name.trim() && f.start_date)) return false
   if (scoringMode.value === 'multi_parameter') {
@@ -823,6 +834,16 @@ async function submit() {
             </div>
           </v-card>
         </template>
+
+        <v-alert
+          v-if="endBeforeStart"
+          type="warning"
+          variant="tonal"
+          density="compact"
+          class="mt-4"
+        >
+          End date must be on or after the start date.
+        </v-alert>
 
         <v-alert v-if="error" type="error" variant="tonal" class="mt-4">
           {{ error }}
