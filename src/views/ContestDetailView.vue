@@ -284,6 +284,17 @@ function onSubmitted() {
   if (contest.value) loadSubmissions(contest.value.id)
 }
 
+// The user refreshed an article they had already submitted: stats replaced and
+// any jury review removed (back to pending).
+function onUpdated() {
+  toast.value = {
+    show: true,
+    text: 'Submission stats updated. Any previous jury review was removed; it is pending review again.',
+    color: 'success',
+  }
+  if (contest.value) loadSubmissions(contest.value.id)
+}
+
 watch(() => route.params.id, (id) => load(id), { immediate: true })
 
 // Submissions need a session; (re)load when the contest or auth state changes.
@@ -754,6 +765,7 @@ watch(
       v-model="submitOpen"
       :contest-id="contest.id"
       @submitted="onSubmitted"
+      @updated="onUpdated"
     />
 
     <ReviewSubmissionModal

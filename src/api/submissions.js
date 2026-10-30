@@ -7,6 +7,11 @@ import client from './client'
 
 // POST /api/contests/<contestId>/submissions/evaluate — step 1.
 // Processes the article link and returns { article_link, article_metadata, hash }.
+// An article can be in a contest once, by one participant only: if someone else
+// already submitted it this rejects (400). If the *current user* already
+// submitted it, the response also carries `existing_submission` ({ id, status,
+// score, already_reviewed, reviewed_by_username, reviewed_at, submitted_at })
+// so the UI can offer to keep it or refresh its stats.
 export async function evaluateSubmission(contestId, articleLink) {
   const { data } = await client.post(
     `/api/contests/${contestId}/submissions/evaluate`,
@@ -17,10 +22,13 @@ export async function evaluateSubmission(contestId, articleLink) {
 
 // POST /api/contests/<contestId>/submissions — step 2.
 // Confirms the submission using the `hash` from evaluate. Returns the submission object.
-export async function createSubmission(contestId, hash) {
+// Pass `update: true` when evaluate returned `existing_submission` and the user
+// chose to refresh it: the existing row's stats are replaced and any jury
+// review is removed (back to pending), instead of creating a duplicate.
+export async function createSubmission(contestId, hash, { update = false } = {}) {
   const { data } = await client.post(
     `/api/contests/${contestId}/submissions`,
-    { hash },
+    update ? { hash, update: true } : { hash },
   )
   return data
 }
