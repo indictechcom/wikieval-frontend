@@ -43,6 +43,18 @@ export async function importSubmission(contestId, { articleLink, username }) {
   return data
 }
 
+// POST /api/contests/<contestId>/submissions/add — organizer adds one submission
+// on behalf of a participant who missed the window. Ignores the closed window
+// (dates unchanged) but enforces the contest's eligibility rules. Returns the
+// created submission.
+export async function addSubmissionOnBehalf(contestId, { username, articleLink }) {
+  const { data } = await client.post(
+    `/api/contests/${contestId}/submissions/add`,
+    { username, article_link: articleLink },
+  )
+  return data
+}
+
 // POST /api/submissions/<submissionId>/review — jury accept/reject.
 // decision is 'accept' or 'reject'; score, review_comment, parameter_scores optional.
 // Returns the updated submission object.

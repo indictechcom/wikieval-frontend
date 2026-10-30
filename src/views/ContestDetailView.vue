@@ -23,6 +23,7 @@ import {
   mdiUpload,
   mdiImageMultiple,
   mdiAccountEdit,
+  mdiAccountPlusOutline,
 } from '@mdi/js'
 import { getContest, startContest } from '../api/contests'
 import { listSubmissions } from '../api/submissions'
@@ -34,6 +35,7 @@ import ContestFormModal from '../components/ContestFormModal.vue'
 import SubmitArticleModal from '../components/SubmitArticleModal.vue'
 import ReviewSubmissionModal from '../components/ReviewSubmissionModal.vue'
 import ParameterScores from '../components/ParameterScores.vue'
+import AddSubmissionModal from '../components/AddSubmissionModal.vue'
 
 const route = useRoute()
 const { username, logged, isSuperadmin } = useAuth()
@@ -168,6 +170,14 @@ function exportCsv() {
 
 // Superadmin-only CSV import — handled on a dedicated page (/contests/:id/import).
 const canImport = computed(() => isSuperadmin.value)
+
+// Organizers can add a single missed submission on behalf of a participant.
+const addOpen = ref(false)
+const canAddSubmission = computed(() => isOrganizer.value)
+async function onSubmissionAdded() {
+  await loadSubmissions(route.params.id)
+  toast.value = { show: true, text: 'Submission added.', color: 'success' }
+}
 
 function openReview(submission) {
   reviewTarget.value = submission
@@ -583,7 +593,21 @@ watch(
         title="Submissions"
         :icon="mdiFileDocumentOutline"
       >
-        <template v-if="canExport || canImport" #actions>
+        <template v-if="canExport || canImport || canAddSubmission" #actions>
+          <v-btn
+            v-if="canAddSubmission"
+            variant="text"
+            color="white"
+            size="small"
+            density="comfortable"
+            icon
+            @click="addOpen = true"
+          >
+            <v-icon :icon="mdiAccountPlusOutline" size="18" />
+            <v-tooltip activator="parent" location="bottom">
+              Add a missed submission on behalf of a participant
+            </v-tooltip>
+          </v-btn>
           <v-btn
             v-if="canImport"
             variant="text"
@@ -738,6 +762,13 @@ watch(
       :submission="reviewTarget"
       :contest="contest"
       @reviewed="onReviewed"
+    />
+
+    <AddSubmissionModal
+      v-if="canAddSubmission && contest"
+      v-model="addOpen"
+      :contest-id="contest.id"
+      @added="onSubmissionAdded"
     />
 
     <v-snackbar v-model="toast.show" :color="toast.color" timeout="4000">
