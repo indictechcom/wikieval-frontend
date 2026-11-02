@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { mdiBriefcaseOutline, mdiCalendarRange, mdiCircle } from '@mdi/js'
+import { mdiBriefcaseOutline, mdiCalendarRange, mdiCircle, mdiSitemapOutline } from '@mdi/js'
 import { contestStatus } from '../utils/contestStatus'
 
 const props = defineProps({
@@ -53,6 +53,25 @@ const dateRange = computed(() => {
         >
           {{ status.label }}
         </span>
+        <v-chip
+          v-if="contest.is_group"
+          size="x-small"
+          color="primary"
+          variant="tonal"
+          label
+          :prepend-icon="mdiSitemapOutline"
+        >
+          Group · {{ contest.child_count }} child {{ contest.child_count === 1 ? 'campaign' : 'campaigns' }}
+        </v-chip>
+        <v-chip
+          v-else-if="contest.parent_name"
+          size="x-small"
+          variant="tonal"
+          label
+          :prepend-icon="mdiSitemapOutline"
+        >
+          Part of {{ contest.parent_name }}
+        </v-chip>
       </div>
     </v-card-item>
 

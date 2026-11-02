@@ -23,7 +23,17 @@ export async function getLeaderboard(id) {
   return data.leaderboard
 }
 
+// GET /api/contests/<id>/children — a group campaign's child campaigns, each a
+// contest object plus submission_count / accepted_count / rejected_count /
+// pending_count / participant_count. Draft children only for organizers.
+export async function listChildren(id) {
+  const { data } = await client.get(`/api/contests/${id}/children`)
+  return data.children
+}
+
 // POST /api/contests — create a contest (requires `can_create_contest`).
+// `is_group: true` creates a group (parent) campaign; `parent_id` creates a
+// child of that group (caller must organize the parent).
 // `payload` requires name, project_name, start_date; other fields optional.
 // Returns the created contest object (status `pending`).
 export async function createContest(payload) {

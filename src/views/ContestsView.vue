@@ -7,6 +7,7 @@ import { useAuth } from '../composables/useAuth'
 import RequestRightsModal from '../components/RequestRightsModal.vue'
 import ContestFormModal from '../components/ContestFormModal.vue'
 import ContestCard from '../components/ContestCard.vue'
+import { contestWindow } from '../utils/contestStatus'
 
 const { logged, canCreateContest, isSuperadmin } = useAuth()
 
@@ -14,6 +15,10 @@ const contests = ref([])
 const loading = ref(true)
 const error = ref('')
 const tab = ref('current')
+// Child campaigns are listed alongside everything else (people look for their
+// own language campaign by name). This lets a long list collapse to groups and
+// standalone contests; the group's page still lists its children.
+const hideChildren = ref(false)
 
 // Rights come from GET /api/user (canCreateContest); the request status (for
 // the "pending" chip) comes from GET /api/contest-creation-request.
@@ -23,23 +28,26 @@ const modalOpen = ref(false)
 const createOpen = ref(false)
 const snackbar = ref({ show: false, text: '', color: 'success' })
 
-// Split contests into Current / Upcoming / Past by their date range.
-function toDate(value) {
-  return value ? new Date(value) : null
-}
+// Split contests into Current / Upcoming / Past by their date range (a group
+// with children is bucketed by its children's combined window).
 const buckets = computed(() => {
   const now = new Date()
   const result = { current: [], upcoming: [], past: [] }
   for (const contest of contests.value) {
-    const start = toDate(contest.start_date)
-    const end = toDate(contest.end_date)
+    const { start, end } = contestWindow(contest)
     if (start && start > now) result.upcoming.push(contest)
     else if (end && end < now) result.past.push(contest)
     else result.current.push(contest)
   }
   return result
 })
-const visible = computed(() => buckets.value[tab.value] || [])
+const visible = computed(() => {
+  const list = buckets.value[tab.value] || []
+  return hideChildren.value ? list.filter((c) => !c.parent_id) : list
+})
+const childCount = computed(
+  () => (buckets.value[tab.value] || []).filter((c) => c.parent_id).length,
+)
 
 // Superadmins and rights-holders can create contests directly.
 const showCreateBtn = computed(
@@ -142,11 +150,20 @@ onMounted(async () => {
         {{ rejectionReason }}</span>. You can submit a new request.
     </v-alert>
 
-    <v-tabs v-model="tab" color="primary" class="mb-6">
-      <v-tab value="current">Current</v-tab>
-      <v-tab value="upcoming">Upcoming</v-tab>
-      <v-tab value="past">Past</v-tab>
-    </v-tabs>
+    <div class="d-flex flex-wrap align-center justify-space-between ga-4 mb-6">
+      <v-tabs v-model="tab" color="primary">
+        <v-tab value="current">Current</v-tab>
+        <v-tab value="upcoming">Upcoming</v-tab>
+        <v-tab value="past">Past</v-tab>
+      </v-tabs>
+      <v-checkbox
+        v-if="childCount > 0 || hideChildren"
+        v-model="hideChildren"
+        density="compact"
+        hide-details
+        :label="`Hide child campaigns (${childCount})`"
+      />
+    </div>
 
     <div v-if="loading" class="d-flex justify-center py-8">
       <v-progress-circular indeterminate color="primary" />

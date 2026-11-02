@@ -3,7 +3,10 @@ import { ref, computed, watch } from 'vue'
 import { mdiClose, mdiGavel, mdiAutoFix } from '@mdi/js'
 import { reviewSubmission } from '../api/submissions'
 import { evaluateAuto, autoSummary } from '../utils/autoScore'
+import { useAuth } from '../composables/useAuth'
 import ArticleMetadata from './ArticleMetadata.vue'
+
+const { username } = useAuth()
 
 const open = defineModel({ type: Boolean, default: false })
 const props = defineProps({
@@ -18,8 +21,20 @@ const comment = ref('')
 const loading = ref(false)
 const error = ref('')
 
+// This jury member's own earlier review of the submission (if any). With
+// several reviews per article each juror edits only their own entry; the
+// submission's status/score are the aggregate and are not edited directly.
+const myReview = computed(() =>
+  (props.submission?.reviews || []).find(
+    (r) => r.reviewer_username === username.value,
+  ) || null,
+)
 // Editing an existing review vs a first-time review.
-const isEditing = computed(() => !!props.submission?.already_reviewed)
+const isEditing = computed(() => !!myReview.value)
+
+const reviewsRequired = computed(() => props.submission?.reviews_required ?? 1)
+const reviewCount = computed(() => props.submission?.review_count ?? 0)
+const multiReview = computed(() => reviewsRequired.value > 1)
 
 // Multi-parameter scoring (when the contest is configured for it).
 const scoring = computed(() => {
@@ -55,22 +70,22 @@ const calculatedScore = computed(() => {
 watch(open, (isOpen) => {
   if (isOpen) {
     const s = props.submission
-    // Editing an existing review: pre-fill with the previous decision/score/
-    // parameter scores/comment. First review: start from defaults.
-    const editing = s?.already_reviewed
-    decision.value = editing && s.status === 'rejected' ? 'reject' : 'accept'
+    // Editing my existing review: pre-fill with MY previous decision/score/
+    // parameter scores/comment (not the aggregate). First review: defaults.
+    const mine = myReview.value
+    decision.value = mine?.decision === 'reject' ? 'reject' : 'accept'
     // Simple: default to accepted marks. Multi: starts at 0 (all sliders 0).
-    score.value = editing ? (s.score ?? 0) : (props.contest?.marks_setting_accepted ?? 0)
+    score.value = mine ? (mine.score ?? 0) : (props.contest?.marks_setting_accepted ?? 0)
     const meta = s?.article_metadata || {}
     paramScores.value = Object.fromEntries(
       params.value.map((p) => {
-        if (editing) return [p.name, s.parameter_scores?.[p.name] ?? 0]
+        if (mine) return [p.name, mine.parameter_scores?.[p.name] ?? 0]
         // First review: pre-fill full points when an auto rule is satisfied.
         const matched = p.auto ? evaluateAuto(p.auto, meta) : null
         return [p.name, matched === true ? p.points : 0]
       }),
     )
-    comment.value = editing ? (s.review_comment ?? '') : ''
+    comment.value = mine ? (mine.review_comment ?? '') : ''
     error.value = ''
     loading.value = false
   }
@@ -115,6 +130,19 @@ async function submit() {
       </v-toolbar>
 
       <v-card-text class="pa-6">
+        <v-alert
+          v-if="multiReview"
+          type="info"
+          variant="tonal"
+          density="compact"
+          class="mb-4"
+        >
+          This contest needs <strong>{{ reviewsRequired }}</strong> jury reviews
+          per article ({{ reviewCount }} so far). The majority decision wins and
+          the final score is the average of the agreeing reviews. You are
+          {{ isEditing ? 'editing your own review' : 'adding your review' }}.
+        </v-alert>
+
         <ArticleMetadata
           :metadata="submission?.article_metadata || {}"
           :rules="contest?.eligibility_rules || {}"

@@ -24,8 +24,18 @@ import {
   mdiImageMultiple,
   mdiAccountEdit,
   mdiAccountPlusOutline,
+  mdiSitemapOutline,
+  mdiLinkVariantPlus,
+  mdiLinkVariantOff,
+  mdiPlus,
 } from '@mdi/js'
-import { getContest, startContest } from '../api/contests'
+import {
+  getContest,
+  startContest,
+  listChildren,
+  listContests,
+  updateContest,
+} from '../api/contests'
 import { listSubmissions } from '../api/submissions'
 import { contestStatus } from '../utils/contestStatus'
 import { formatInZone } from '../utils/timezone'
@@ -71,15 +81,21 @@ const organizers = computed(() => {
   if (c?.organizers?.length) return c.organizers
   return c?.creator_username ? [c.creator_username] : []
 })
+// Who manages this contest: own organizers plus, for a child campaign, the
+// parent group's organizers (the backend applies the same rule).
+const managers = computed(() => {
+  const c = contest.value
+  return c?.effective_organizers?.length ? c.effective_organizers : organizers.value
+})
 
 // Only organizers manage the contest. They can start a draft (pending) contest,
 // and can edit it — all fields while pending, only the organizer/jury lists once
-// active.
+// active. Group campaigns are active from creation and are never started.
 const isOrganizer = computed(
-  () => !!username.value && organizers.value.includes(username.value),
+  () => !!username.value && managers.value.includes(username.value),
 )
 const canStart = computed(
-  () => contest.value?.status === 'pending' && isOrganizer.value,
+  () => contest.value?.status === 'pending' && !isGroup.value && isOrganizer.value,
 )
 const canEdit = computed(() => isOrganizer.value)
 // Only contests that are active AND currently within their date window accept
@@ -89,9 +105,102 @@ const canEdit = computed(() => isOrganizer.value)
 const canSubmit = computed(
   () =>
     !!logged.value &&
+    !isGroup.value &&
     contest.value?.status === 'active' &&
     status.value.key === 'current',
 )
+
+// --- Campaign hierarchy -------------------------------------------------
+// A group campaign aggregates its child campaigns and takes no submissions.
+const isGroup = computed(() => !!contest.value?.is_group)
+const children = ref([])
+const childrenLoading = ref(false)
+const childCreateOpen = ref(false)
+
+async function loadChildren(id) {
+  childrenLoading.value = true
+  try {
+    children.value = await listChildren(id)
+  } catch {
+    children.value = []
+  } finally {
+    childrenLoading.value = false
+  }
+}
+watch(
+  [() => contest.value?.id, () => contest.value?.is_group, logged],
+  ([id, group]) => {
+    if (id && group) loadChildren(id)
+    else children.value = []
+  },
+  { immediate: true },
+)
+
+const childTotals = computed(() =>
+  children.value.reduce(
+    (t, c) => ({
+      submissions: t.submissions + (c.submission_count || 0),
+      accepted: t.accepted + (c.accepted_count || 0),
+      rejected: t.rejected + (c.rejected_count || 0),
+      pending: t.pending + (c.pending_count || 0),
+      participants: t.participants + (c.participant_count || 0),
+    }),
+    { submissions: 0, accepted: 0, rejected: 0, pending: 0, participants: 0 },
+  ),
+)
+const childStatus = (c) => contestStatus(c)
+
+function onChildCreated() {
+  toast.value = { show: true, text: 'Child campaign created.', color: 'success' }
+  loadChildren(contest.value.id)
+  load(route.params.id)
+}
+
+// Attach an existing contest (one the user organizes, standalone) as a child.
+const attachOpen = ref(false)
+const attachCandidates = ref([])
+const attachTarget = ref(null)
+const attaching = ref(false)
+async function openAttach() {
+  attachTarget.value = null
+  attachOpen.value = true
+  try {
+    const all = await listContests()
+    attachCandidates.value = all.filter(
+      (c) =>
+        !c.is_group &&
+        !c.parent_id &&
+        (c.organizers || []).includes(username.value),
+    )
+  } catch {
+    attachCandidates.value = []
+  }
+}
+async function attach() {
+  if (!attachTarget.value) return
+  attaching.value = true
+  try {
+    await updateContest(attachTarget.value, { parent_id: contest.value.id })
+    attachOpen.value = false
+    toast.value = { show: true, text: 'Campaign attached.', color: 'success' }
+    loadChildren(contest.value.id)
+    load(route.params.id)
+  } catch (e) {
+    toast.value = { show: true, text: e.message, color: 'error' }
+  } finally {
+    attaching.value = false
+  }
+}
+async function detach(child) {
+  try {
+    await updateContest(child.id, { parent_id: null })
+    toast.value = { show: true, text: `${child.name} detached.`, color: 'success' }
+    loadChildren(contest.value.id)
+    load(route.params.id)
+  } catch (e) {
+    toast.value = { show: true, text: e.message, color: 'error' }
+  }
+}
 
 // Jury members review submissions.
 const isJury = computed(
@@ -103,6 +212,14 @@ const isJury = computed(
 const submissionStatusColor = (status) =>
   ({ accepted: 'success', rejected: 'error', pending: 'warning' })[status] ||
   'grey'
+
+// Multiple jury reviews per article (contest.reviews_required > 1).
+const reviewsRequired = computed(() => contest.value?.reviews_required ?? 1)
+const multiReview = computed(() => reviewsRequired.value > 1)
+const myReview = (s) =>
+  (s.reviews || []).find((r) => r.reviewer_username === username.value) || null
+// Reviews that have a comment, for display under the article.
+const reviewComments = (s) => (s.reviews || []).filter((r) => r.review_comment)
 
 // Contest organizers (incl. creator) and superadmins can export the full
 // submissions list as CSV. The backend already returns every submission to them.
@@ -138,6 +255,7 @@ function exportCsv() {
     'Score',
     'Reviewed By',
     'Review Comment',
+    'Reviews',
     'Submitted',
   ]
   const rows = submissions.value.map((s) => [
@@ -148,6 +266,9 @@ function exportCsv() {
     s.score ?? '',
     s.reviewed_by_username || '',
     s.review_comment || '',
+    (s.reviews || [])
+      .map((r) => `${r.reviewer_username}: ${r.decision}${r.decision === 'accept' ? ` ${r.score}` : ''}`)
+      .join('; '),
     s.submitted_at || '',
   ])
   const csv = [headers, ...rows]
@@ -342,7 +463,7 @@ watch(
           Start Contest
         </v-btn>
         <v-btn
-          v-if="logged && contest && contest.status !== 'pending'"
+          v-if="logged && contest && contest.status !== 'pending' && !isGroup"
           color="primary"
           variant="flat"
           :prepend-icon="mdiTrophy"
@@ -367,6 +488,26 @@ watch(
       <div class="d-flex align-center ga-3 pb-3 mb-6 border-b-md">
         <v-chip :color="status.color" size="small" label>
           {{ status.label }}
+        </v-chip>
+        <v-chip
+          v-if="isGroup"
+          size="small"
+          color="primary"
+          variant="tonal"
+          label
+          :prepend-icon="mdiSitemapOutline"
+        >
+          Group campaign
+        </v-chip>
+        <v-chip
+          v-else-if="contest.parent_id"
+          size="small"
+          variant="tonal"
+          label
+          :prepend-icon="mdiSitemapOutline"
+          :to="`/contests/${contest.parent_id}`"
+        >
+          Part of {{ contest.parent_name }}
         </v-chip>
         <span class="text-medium-emphasis d-flex align-center ga-1">
           <v-icon :icon="mdiCalendarBlankOutline" size="x-small" />
@@ -424,11 +565,39 @@ watch(
         <p style="white-space: pre-wrap">{{ contest.description }}</p>
       </DetailSection>
 
+      <!-- On a group campaign the scoring, eligibility and jury below are only
+           the defaults copied into each new child campaign. -->
+      <v-alert
+        v-if="isGroup"
+        type="info"
+        variant="tonal"
+        density="compact"
+        class="mb-4"
+        :icon="mdiSitemapOutline"
+      >
+        <strong>Defaults for child campaigns.</strong> The scoring, submission
+        type, eligibility rules and jury below do not apply to this group
+        campaign itself; they are pre-filled into each child campaign created
+        under it and can be changed there.
+      </v-alert>
+
       <!-- Scoring System + Submission Type, side by side -->
       <v-row class="mb-4">
 
         <v-col cols="12" md="6">
-          <DetailSection title="Scoring System" :icon="mdiChartLine" fill-height>
+          <DetailSection
+            :title="isGroup ? 'Default Scoring System' : 'Scoring System'"
+            :icon="mdiChartLine"
+            fill-height
+          >
+            <div class="mb-3">
+              <span class="text-medium-emphasis">Jury reviews per article:</span>
+              <strong class="text-primary ms-1">{{ reviewsRequired }}</strong>
+              <span v-if="multiReview" class="text-caption text-medium-emphasis ms-1">
+                (majority decides; score is the average of agreeing reviews)
+              </span>
+            </div>
+
             <!-- Multi-parameter scoring -->
             <template v-if="scoring">
               <div class="mb-3">
@@ -484,7 +653,7 @@ watch(
 
         <v-col cols="12" md="6">
           <DetailSection
-            title="Submission Type Allowed"
+            :title="isGroup ? 'Default Submission Type' : 'Submission Type Allowed'"
             :icon="mdiFileDocumentOutline"
             fill-height
           >
@@ -582,7 +751,7 @@ watch(
       <!-- Jury Members -->
       <DetailSection
         v-if="contest.jury_members?.length"
-        title="Jury Members"
+        :title="isGroup ? 'Default Jury Members' : 'Jury Members'"
         :icon="mdiAccountGroup"
       >
         <div class="d-flex flex-wrap ga-2">
@@ -598,9 +767,105 @@ watch(
         </div>
       </DetailSection>
 
+      <!-- Child campaigns (group campaigns only) -->
+      <DetailSection
+        v-if="isGroup"
+        title="Child Campaigns"
+        :icon="mdiSitemapOutline"
+      >
+        <template v-if="isOrganizer" #actions>
+          <v-btn
+            variant="text"
+            color="white"
+            size="small"
+            :prepend-icon="mdiPlus"
+            @click="childCreateOpen = true"
+          >
+            New Child Campaign
+          </v-btn>
+          <v-btn
+            variant="text"
+            color="white"
+            size="small"
+            :prepend-icon="mdiLinkVariantPlus"
+            @click="openAttach"
+          >
+            Attach Existing
+          </v-btn>
+        </template>
+
+        <p class="text-medium-emphasis mb-4">
+          This is a group campaign: articles are submitted to its child
+          campaigns, and their progress is summarised here. The rules, scoring
+          and jury shown above are the defaults for new child campaigns.
+        </p>
+
+        <div v-if="childrenLoading" class="d-flex justify-center py-4">
+          <v-progress-circular indeterminate color="primary" size="24" />
+        </div>
+        <p v-else-if="children.length === 0" class="text-medium-emphasis">
+          No child campaigns yet.
+        </p>
+        <v-table v-else density="comfortable">
+          <thead>
+            <tr>
+              <th>Campaign</th>
+              <th>Project</th>
+              <th>Status</th>
+              <th class="text-center">Participants</th>
+              <th class="text-center">Submissions</th>
+              <th class="text-center">Accepted</th>
+              <th class="text-center">Rejected</th>
+              <th class="text-center">Pending</th>
+              <th v-if="isOrganizer" class="text-right"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="c in children" :key="c.id">
+              <td>
+                <router-link :to="`/contests/${c.id}`" class="font-weight-medium">
+                  {{ c.name }}
+                </router-link>
+              </td>
+              <td>{{ c.project_name }}</td>
+              <td>
+                <v-chip :color="childStatus(c).color" size="x-small" label>
+                  {{ childStatus(c).label }}
+                </v-chip>
+              </td>
+              <td class="text-center">{{ c.participant_count }}</td>
+              <td class="text-center">{{ c.submission_count }}</td>
+              <td class="text-center text-success">{{ c.accepted_count }}</td>
+              <td class="text-center text-error">{{ c.rejected_count }}</td>
+              <td class="text-center text-warning">{{ c.pending_count }}</td>
+              <td v-if="isOrganizer" class="text-right">
+                <v-btn
+                  variant="text"
+                  size="small"
+                  :icon="mdiLinkVariantOff"
+                  title="Detach from this group campaign"
+                  @click="detach(c)"
+                />
+              </td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr class="font-weight-bold">
+              <td colspan="3">Total ({{ children.length }} {{ children.length === 1 ? 'campaign' : 'campaigns' }})</td>
+              <td class="text-center">{{ childTotals.participants }}</td>
+              <td class="text-center">{{ childTotals.submissions }}</td>
+              <td class="text-center text-success">{{ childTotals.accepted }}</td>
+              <td class="text-center text-error">{{ childTotals.rejected }}</td>
+              <td class="text-center text-warning">{{ childTotals.pending }}</td>
+              <td v-if="isOrganizer"></td>
+            </tr>
+          </tfoot>
+        </v-table>
+      </DetailSection>
+
       <!-- Submissions -->
       <DetailSection
-        v-if="logged"
+        v-if="logged && !isGroup"
         title="Submissions"
         :icon="mdiFileDocumentOutline"
       >
@@ -677,11 +942,13 @@ watch(
                   {{ s.article_metadata?.article_title || s.article_link }}
                 </a>
                 <div
-                  v-if="s.review_comment"
+                  v-for="r in reviewComments(s)"
+                  :key="r.reviewer_id"
                   class="text-caption text-medium-emphasis mt-1"
                 >
                   <v-icon :icon="mdiCommentQuoteOutline" size="x-small" />
-                  {{ s.review_comment }}
+                  <template v-if="multiReview">{{ r.reviewer_username }}:</template>
+                  {{ r.review_comment }}
                 </div>
                 <ParameterScores :scores="s.parameter_scores" />
               </td>
@@ -694,22 +961,18 @@ watch(
                 >
                   {{ s.status }}
                 </v-chip>
+                <div
+                  v-if="multiReview"
+                  class="text-caption text-medium-emphasis mt-1"
+                >
+                  {{ s.review_count }}/{{ s.reviews_required }} reviews
+                </div>
               </td>
               <td>{{ s.score }}</td>
               <td>{{ formatDateTime(s.submitted_at) }}</td>
               <td v-if="isJury" class="text-right">
                 <v-btn
-                  v-if="s.status === 'pending'"
-                  size="small"
-                  variant="tonal"
-                  color="primary"
-                  :prepend-icon="mdiGavel"
-                  @click="openReview(s)"
-                >
-                  Review
-                </v-btn>
-                <v-btn
-                  v-else-if="s.reviewed_by_username === username"
+                  v-if="myReview(s)"
                   size="small"
                   variant="text"
                   color="primary"
@@ -717,6 +980,16 @@ watch(
                   @click="openReview(s)"
                 >
                   Edit
+                </v-btn>
+                <v-btn
+                  v-else-if="!s.already_reviewed"
+                  size="small"
+                  variant="tonal"
+                  color="primary"
+                  :prepend-icon="mdiGavel"
+                  @click="openReview(s)"
+                >
+                  Review
                 </v-btn>
                 <span v-else class="text-medium-emphasis text-caption">
                   Reviewed
@@ -759,6 +1032,48 @@ watch(
       :contest="contest"
       @saved="onSaved"
     />
+
+    <ContestFormModal
+      v-if="isGroup"
+      v-model="childCreateOpen"
+      :parent="contest"
+      @saved="onChildCreated"
+    />
+
+    <v-dialog v-model="attachOpen" max-width="520">
+      <v-card>
+        <v-card-title class="font-weight-bold">Attach an existing campaign</v-card-title>
+        <v-card-text>
+          <p class="text-medium-emphasis mb-4">
+            Standalone contests you organize can be attached as child campaigns
+            of {{ contest?.name }}. Their settings and submissions are unchanged.
+          </p>
+          <v-select
+            v-model="attachTarget"
+            :items="attachCandidates"
+            item-title="name"
+            item-value="id"
+            label="Contest"
+            variant="outlined"
+            density="comfortable"
+            :no-data-text="'No standalone contests you organize'"
+          />
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="tonal" @click="attachOpen = false">Cancel</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="attaching"
+            :disabled="!attachTarget"
+            @click="attach"
+          >
+            Attach
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <SubmitArticleModal
       v-if="contest"

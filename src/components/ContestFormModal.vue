@@ -4,6 +4,7 @@ import {
   mdiPlus,
   mdiPencil,
   mdiClose,
+  mdiSitemapOutline,
   mdiContentSave,
   mdiInformationOutline,
   mdiFileOutline,
@@ -52,12 +53,25 @@ const open = defineModel({ type: Boolean, default: false })
 const props = defineProps({
   // null → create mode; a contest object → edit mode.
   contest: { type: Object, default: null },
+  // A group campaign → create a *child* of it. The form is pre-filled from the
+  // parent's settings (rules, scoring, jury, organizers, dates) as defaults.
+  parent: { type: Object, default: null },
 })
 const emit = defineEmits(['saved'])
 
 const isEdit = computed(() => !!props.contest)
+const isChild = computed(() => !isEdit.value && !!props.parent)
+const title = computed(() => {
+  if (isEdit.value) return 'Edit Contest'
+  if (isChild.value) return 'Create Child Campaign'
+  return 'Create Contest'
+})
 // Once a contest is active its config is locked; only organizers/jury editable.
-const locked = computed(() => isEdit.value && props.contest.status !== 'pending')
+// A group campaign is active from creation and never locks (its settings are
+// only defaults for its children).
+const locked = computed(
+  () => isEdit.value && !props.contest.is_group && props.contest.status !== 'pending',
+)
 
 const DEFAULT_PARAMS = [
   { name: 'Quality', points: 4, description: 'Article structure & content quality' },
@@ -69,6 +83,9 @@ const DEFAULT_PARAMS = [
 const blankForm = () => ({
   name: '',
   project_name: '',
+  // true → a group (parent) campaign: no submissions of its own; its settings
+  // become the defaults for the child campaigns created under it.
+  is_group: false,
   description: '',
   // Dates/times are entered as wall-clock in `timezone`; converted to a UTC
   // instant on submit. Defaults: start at 00:00, end at 23:59 of the chosen day.
@@ -79,6 +96,9 @@ const blankForm = () => ({
   end_time: '23:59',
   marks_setting_accepted: 10,
   marks_setting_rejected: 0,
+  // Jury reviews each article needs before its result is final (1 = the first
+  // review is final; 2+ = majority decides, score is the average).
+  reviews_required: 1,
   parameters: DEFAULT_PARAMS.map((p) => ({ ...p })),
   organizers: [],
   jury_members: [],
@@ -146,6 +166,7 @@ function fromContest(c) {
     end_time: end.time || '23:59',
     marks_setting_accepted: c.marks_setting_accepted ?? 10,
     marks_setting_rejected: c.marks_setting_rejected ?? 0,
+    reviews_required: c.reviews_required ?? 1,
     parameters: sp.parameters?.length
       ? sp.parameters.map((p) => ({
           name: p.name,
@@ -203,6 +224,8 @@ const valid = computed(() => {
   if (locked.value) return true // only organizers/jury/end-date, else acceptable
   const f = form.value
   if (!(f.name.trim() && f.project_name.trim() && f.start_date)) return false
+  if (!(Number.isInteger(Number(f.reviews_required)) && Number(f.reviews_required) >= 1))
+    return false
   if (scoringMode.value === 'multi_parameter') {
     return (
       totalPoints.value > 0 &&
@@ -216,11 +239,16 @@ const valid = computed(() => {
 
 watch(open, (isOpen) => {
   if (isOpen) {
-    form.value = isEdit.value ? fromContest(props.contest) : blankForm()
+    const source = props.contest || props.parent
+    form.value = source ? fromContest(source) : blankForm()
+    if (isChild.value) {
+      // Defaults come from the parent; identity fields start fresh.
+      form.value.name = ''
+      form.value.description = ''
+      form.value.project_link = ''
+    }
     scoringMode.value =
-      isEdit.value && props.contest.scoring_parameters?.enabled
-        ? 'multi_parameter'
-        : 'simple'
+      source?.scoring_parameters?.enabled ? 'multi_parameter' : 'simple'
     error.value = ''
     loading.value = false
   }
@@ -260,6 +288,7 @@ function buildPayload() {
     end_date: endInstant(f),
     description: f.description.trim() || null,
     project_link: f.project_link.trim() || null,
+    reviews_required: Number(f.reviews_required) || 1,
   }
   if (scoringMode.value === 'multi_parameter') {
     // Max score is the sum of parameter points; rejected submissions score 0.
@@ -282,6 +311,11 @@ function buildPayload() {
     payload.marks_setting_accepted = f.marks_setting_accepted
     payload.marks_setting_rejected = f.marks_setting_rejected
     payload.scoring_parameters = null // clear if switching away from multi
+  }
+  // Hierarchy is fixed at creation (is_group) or set via the parent page.
+  if (!isEdit.value) {
+    if (isChild.value) payload.parent_id = props.parent.id
+    else payload.is_group = !!f.is_group
   }
   return payload
 }
@@ -311,7 +345,7 @@ async function submit() {
       <v-toolbar color="primary" density="comfortable">
         <v-icon :icon="isEdit ? mdiPencil : mdiPlus" class="ms-4" />
         <v-toolbar-title class="font-weight-bold">
-          {{ isEdit ? 'Edit Contest' : 'Create Contest' }}
+          {{ title }}
         </v-toolbar-title>
         <v-btn :icon="mdiClose" variant="text" @click="open = false" />
       </v-toolbar>
@@ -353,6 +387,18 @@ async function submit() {
 
         <!-- Config fields (editable only while pending) -->
         <template v-if="!locked">
+          <v-alert
+            v-if="isChild"
+            type="info"
+            variant="tonal"
+            class="mb-4"
+            :icon="mdiSitemapOutline"
+          >
+            This campaign will be part of <strong>{{ parent.name }}</strong>.
+            Rules, scoring, jury, organizers and dates are pre-filled from it;
+            change anything before saving.
+          </v-alert>
+
           <v-row>
             <v-col cols="12" md="6">
               <v-text-field
@@ -372,6 +418,28 @@ async function submit() {
               />
             </v-col>
           </v-row>
+
+          <v-switch
+            v-if="!isEdit && !isChild"
+            v-model="form.is_group"
+            color="primary"
+            density="comfortable"
+            hide-details
+            class="mb-2"
+            label="Group campaign — a parent for child campaigns (per language, community or project)"
+          />
+          <v-alert
+            v-if="form.is_group"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="mb-4"
+          >
+            A group campaign takes no submissions itself. Articles are
+            submitted to its child campaigns, and this page shows their
+            combined progress. The settings below become the defaults for
+            each child campaign you create.
+          </v-alert>
 
           <v-textarea
             v-model="form.description"
@@ -479,6 +547,31 @@ async function submit() {
             <v-divider />
 
             <v-card-text>
+              <!-- Reviews per article -->
+              <v-row dense class="mb-2">
+                <v-col cols="12" sm="5">
+                  <v-text-field
+                    v-model.number="form.reviews_required"
+                    label="Jury reviews required per article"
+                    type="number"
+                    min="1"
+                    step="1"
+                    variant="outlined"
+                    density="comfortable"
+                    hide-details
+                  />
+                </v-col>
+                <v-col cols="12" sm="7" class="d-flex align-center">
+                  <div class="text-caption text-medium-emphasis">
+                    <strong>1</strong>: the first jury review is final.
+                    <strong>2 or more</strong>: each article is reviewed by that
+                    many jury members; the majority decision wins (a tie waits
+                    for one more review) and the score is the average of the
+                    agreeing reviews.
+                  </div>
+                </v-col>
+              </v-row>
+
               <!-- Mode selector (segmented) -->
               <v-btn-toggle
                 v-model="scoringMode"
@@ -863,7 +956,7 @@ async function submit() {
           :disabled="!valid"
           @click="submit"
         >
-          {{ isEdit ? 'Save Changes' : 'Create Contest' }}
+          {{ isEdit ? 'Save Changes' : isChild ? 'Create Child Campaign' : form.is_group ? 'Create Group Campaign' : 'Create Contest' }}
         </v-btn>
       </v-card-actions>
     </v-card>
