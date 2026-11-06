@@ -28,6 +28,9 @@ import {
   mdiLinkVariantPlus,
   mdiLinkVariantOff,
   mdiPlus,
+  mdiCheck,
+  mdiSendOutline,
+  mdiClipboardTextClockOutline,
 } from '@mdi/js'
 import {
   getContest,
@@ -37,6 +40,8 @@ import {
   updateContest,
 } from '../api/contests'
 import { listSubmissions } from '../api/submissions'
+import { listChildRequests } from '../api/childCampaignRequests'
+import { login } from '../api/auth'
 import { contestStatus } from '../utils/contestStatus'
 import { formatInZone } from '../utils/timezone'
 import { useAuth } from '../composables/useAuth'
@@ -46,6 +51,8 @@ import SubmitArticleModal from '../components/SubmitArticleModal.vue'
 import ReviewSubmissionModal from '../components/ReviewSubmissionModal.vue'
 import ParameterScores from '../components/ParameterScores.vue'
 import AddSubmissionModal from '../components/AddSubmissionModal.vue'
+import ChildCampaignRequestModal from '../components/ChildCampaignRequestModal.vue'
+import ReviewChildRequestModal from '../components/ReviewChildRequestModal.vue'
 
 const route = useRoute()
 const { username, logged, isSuperadmin } = useAuth()
@@ -154,6 +161,93 @@ function onChildCreated() {
   toast.value = { show: true, text: 'Child campaign created.', color: 'success' }
   loadChildren(contest.value.id)
   load(route.params.id)
+}
+
+// --- Child-campaign requests ------------------------------------------
+// Anyone logged in can ask for a child campaign under a group; the group's
+// organizers review the requests here. A requester only sees their own.
+const childRequests = ref([])
+const childRequestsLoading = ref(false)
+const canReviewRequests = ref(false)
+const childRequestOpen = ref(false)
+const reviewRequestOpen = ref(false)
+const reviewRequestTarget = ref(null)
+const requestsTab = ref('pending')
+
+async function loadChildRequests(id) {
+  childRequestsLoading.value = true
+  try {
+    const data = await listChildRequests(id)
+    childRequests.value = data.requests
+    canReviewRequests.value = !!data.can_review
+  } catch {
+    childRequests.value = []
+    canReviewRequests.value = false
+  } finally {
+    childRequestsLoading.value = false
+  }
+}
+watch(
+  [() => contest.value?.id, isGroup, logged],
+  ([id, group, isLogged]) => {
+    if (id && group && isLogged) loadChildRequests(id)
+    else {
+      childRequests.value = []
+      canReviewRequests.value = false
+    }
+  },
+  { immediate: true },
+)
+
+const pendingChildRequests = computed(() =>
+  childRequests.value.filter((r) => r.status === 'pending'),
+)
+const visibleChildRequests = computed(() =>
+  requestsTab.value === 'pending' ? pendingChildRequests.value : childRequests.value,
+)
+// The requester's own requests (what a non-reviewer gets from the API).
+const myChildRequests = computed(() =>
+  canReviewRequests.value
+    ? childRequests.value.filter((r) => r.username === username.value)
+    : childRequests.value,
+)
+const requestStatusColor = (status) =>
+  ({ approved: 'success', rejected: 'error', pending: 'warning' })[status] || 'grey'
+
+// Logged-out visitors are sent to log in first; the form needs an account.
+function openChildRequest() {
+  if (!logged.value) {
+    login()
+    return
+  }
+  childRequestOpen.value = true
+}
+function onChildRequestSubmitted() {
+  toast.value = {
+    show: true,
+    text: 'Request submitted. The group organizers will review it.',
+    color: 'success',
+  }
+  loadChildRequests(contest.value.id)
+}
+function openRequestReview(request) {
+  reviewRequestTarget.value = request
+  reviewRequestOpen.value = true
+}
+function onChildRequestReviewed(updated) {
+  toast.value = {
+    show: true,
+    text:
+      updated.status === 'approved'
+        ? `${updated.name} created under this campaign.`
+        : `Request for ${updated.name} rejected.`,
+    color: updated.status === 'approved' ? 'success' : 'info',
+  }
+  loadChildRequests(contest.value.id)
+  if (updated.status === 'approved') {
+    loadChildren(contest.value.id)
+    load(route.params.id)
+  }
 }
 
 // Attach an existing contest (one the user organizes, standalone) as a child.
@@ -773,24 +867,36 @@ watch(
         title="Child Campaigns"
         :icon="mdiSitemapOutline"
       >
-        <template v-if="isOrganizer" #actions>
+        <template #actions>
+          <template v-if="isOrganizer">
+            <v-btn
+              variant="text"
+              color="white"
+              size="small"
+              :prepend-icon="mdiPlus"
+              @click="childCreateOpen = true"
+            >
+              New Child Campaign
+            </v-btn>
+            <v-btn
+              variant="text"
+              color="white"
+              size="small"
+              :prepend-icon="mdiLinkVariantPlus"
+              @click="openAttach"
+            >
+              Attach Existing
+            </v-btn>
+          </template>
           <v-btn
+            v-else
             variant="text"
             color="white"
             size="small"
-            :prepend-icon="mdiPlus"
-            @click="childCreateOpen = true"
+            :prepend-icon="mdiSendOutline"
+            @click="openChildRequest"
           >
-            New Child Campaign
-          </v-btn>
-          <v-btn
-            variant="text"
-            color="white"
-            size="small"
-            :prepend-icon="mdiLinkVariantPlus"
-            @click="openAttach"
-          >
-            Attach Existing
+            Submit Child Campaign Request
           </v-btn>
         </template>
 
@@ -798,7 +904,52 @@ watch(
           This is a group campaign: articles are submitted to its child
           campaigns, and their progress is summarised here. The rules, scoring
           and jury shown above are the defaults for new child campaigns.
+          <template v-if="!isOrganizer">
+            Want your community's campaign here? Submit a request and the
+            group organizers will review it.
+          </template>
         </p>
+
+        <!-- The requester's own requests and their status -->
+        <v-card
+          v-if="myChildRequests.length"
+          variant="outlined"
+          class="mb-4"
+        >
+          <v-card-title class="text-body-1 font-weight-bold">
+            Your requests
+          </v-card-title>
+          <v-list density="compact">
+            <v-list-item v-for="r in myChildRequests" :key="r.id">
+              <template #prepend>
+                <v-chip :color="requestStatusColor(r.status)" size="small" label class="me-3">
+                  {{ r.status }}
+                </v-chip>
+              </template>
+              <v-list-item-title>
+                <router-link
+                  v-if="r.status === 'approved' && r.contest_id"
+                  :to="`/contests/${r.contest_id}`"
+                  class="font-weight-medium"
+                >
+                  {{ r.name }}
+                </router-link>
+                <span v-else class="font-weight-medium">{{ r.name }}</span>
+              </v-list-item-title>
+              <v-list-item-subtitle>
+                <template v-if="r.status === 'pending'">
+                  Waiting for the group organizers · requested {{ formatInZone(r.created_at, 'UTC') }}
+                </template>
+                <template v-else-if="r.status === 'approved'">
+                  Approved · you can now manage this campaign
+                </template>
+                <template v-else>
+                  Rejected<template v-if="r.rejection_reason">: {{ r.rejection_reason }}</template>
+                </template>
+              </v-list-item-subtitle>
+            </v-list-item>
+          </v-list>
+        </v-card>
 
         <div v-if="childrenLoading" class="d-flex justify-center py-4">
           <v-progress-circular indeterminate color="primary" size="24" />
@@ -860,6 +1011,101 @@ watch(
               <td v-if="isOrganizer"></td>
             </tr>
           </tfoot>
+        </v-table>
+      </DetailSection>
+
+      <!-- Child-campaign requests (group organizers only) -->
+      <DetailSection
+        v-if="isGroup && canReviewRequests"
+        title="Child Campaign Requests"
+        :icon="mdiClipboardTextClockOutline"
+      >
+        <template #actions>
+          <v-chip
+            v-if="pendingChildRequests.length"
+            color="warning"
+            size="small"
+            label
+          >
+            {{ pendingChildRequests.length }} pending
+          </v-chip>
+        </template>
+
+        <p class="text-medium-emphasis mb-4">
+          Local organizers can ask for a campaign under this group. Approving
+          creates the child campaign with this group's defaults and grants the
+          requester contest creator rights.
+        </p>
+
+        <v-tabs v-model="requestsTab" color="primary" density="compact" class="mb-4">
+          <v-tab value="pending">Pending</v-tab>
+          <v-tab value="all">All</v-tab>
+        </v-tabs>
+
+        <div v-if="childRequestsLoading" class="d-flex justify-center py-4">
+          <v-progress-circular indeterminate color="primary" size="24" />
+        </div>
+        <p v-else-if="visibleChildRequests.length === 0" class="text-medium-emphasis">
+          No {{ requestsTab === 'pending' ? 'pending ' : '' }}requests.
+        </p>
+        <v-table v-else density="comfortable">
+          <thead>
+            <tr>
+              <th>Campaign</th>
+              <th>Requested by</th>
+              <th>Organizers</th>
+              <th>Jury</th>
+              <th>Status</th>
+              <th>Requested</th>
+              <th class="text-right"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in visibleChildRequests" :key="r.id">
+              <td class="font-weight-medium">
+                <router-link
+                  v-if="r.status === 'approved' && r.contest_id"
+                  :to="`/contests/${r.contest_id}`"
+                >
+                  {{ r.name }}
+                </router-link>
+                <template v-else>{{ r.name }}</template>
+              </td>
+              <td>{{ r.username }}</td>
+              <td>{{ r.organizers.join(', ') }}</td>
+              <td>
+                <span v-if="r.jury_members.length">{{ r.jury_members.join(', ') }}</span>
+                <span v-else class="text-medium-emphasis">group default</span>
+              </td>
+              <td>
+                <v-chip :color="requestStatusColor(r.status)" size="x-small" label>
+                  {{ r.status }}
+                </v-chip>
+                <div
+                  v-if="r.status === 'rejected' && r.rejection_reason"
+                  class="text-caption text-medium-emphasis mt-1"
+                >
+                  {{ r.rejection_reason }}
+                </div>
+              </td>
+              <td>{{ formatInZone(r.created_at, 'UTC') }}</td>
+              <td class="text-right text-no-wrap">
+                <v-btn
+                  v-if="r.status === 'pending'"
+                  color="primary"
+                  variant="tonal"
+                  size="small"
+                  :prepend-icon="mdiCheck"
+                  @click="openRequestReview(r)"
+                >
+                  Review
+                </v-btn>
+                <span v-else class="text-medium-emphasis text-caption">
+                  by {{ r.reviewer_username }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
         </v-table>
       </DetailSection>
 
@@ -1038,6 +1284,21 @@ watch(
       v-model="childCreateOpen"
       :parent="contest"
       @saved="onChildCreated"
+    />
+
+    <ChildCampaignRequestModal
+      v-if="isGroup"
+      v-model="childRequestOpen"
+      :parent="contest"
+      @submitted="onChildRequestSubmitted"
+    />
+
+    <ReviewChildRequestModal
+      v-if="isGroup && reviewRequestTarget"
+      v-model="reviewRequestOpen"
+      :request="reviewRequestTarget"
+      :parent="contest"
+      @reviewed="onChildRequestReviewed"
     />
 
     <v-dialog v-model="attachOpen" max-width="520">
