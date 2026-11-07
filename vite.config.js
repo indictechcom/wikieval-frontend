@@ -6,4 +6,7 @@ import vuetify from "vite-plugin-vuetify";
 export default defineConfig(({ command }) => ({
   plugins: [vue(), vuetify({ autoImport: true })],
   base: command === "build" ? "/static/" : "/",
+  server: {
+    host: "127.0.0.1",
+  },
 }));
