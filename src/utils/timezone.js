@@ -41,10 +41,35 @@ export function browserTimeZone() {
   return canonicalZone(moment.tz.guess() || 'UTC')
 }
 
-// 'YYYY-MM-DD' + 'HH:mm' (or 'HH:mm:ss') interpreted in `timeZone` → UTC ISO.
+export function parseDateInput(val) {
+  if (!val) return null
+  const s = String(val).trim()
+  if (!s) return null
+  if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(s)) {
+    const m = moment.utc(s, ['YYYY-MM-DD', 'YYYY/MM/DD'], true)
+    if (m.isValid()) return m.format('YYYY-MM-DD')
+  }
+  const textFormats = [
+    'D MMMM YYYY',
+    'D MMM YYYY',
+    'DD MMMM YYYY',
+    'DD MMM YYYY',
+    'MMMM D, YYYY',
+    'MMM D, YYYY',
+    'DD-MM-YYYY',
+    'D-M-YYYY',
+  ]
+  const mText = moment.utc(s, textFormats, true)
+  if (mText.isValid()) return mText.format('YYYY-MM-DD')
+  const mIso = moment.utc(s, moment.ISO_8601)
+  if (mIso.isValid()) return mIso.format('YYYY-MM-DD')
+  return null
+}
+
 export function zonedToUtcIso(dateStr, timeStr, timeZone) {
-  if (!dateStr) return null
-  return moment.tz(`${dateStr} ${timeStr || '00:00'}`, timeZone).toISOString()
+  const normDate = parseDateInput(dateStr)
+  if (!normDate) return null
+  return moment.tz(`${normDate} ${timeStr || '00:00'}`, timeZone).toISOString()
 }
 
 // UTC ISO → { date: 'YYYY-MM-DD', time: 'HH:mm' } wall-clock in `timeZone`.
@@ -58,4 +83,12 @@ export function utcIsoToZoned(iso, timeZone) {
 export function formatInZone(iso, timeZone) {
   if (!iso) return ''
   return moment.utc(iso).tz(timeZone || 'UTC').format('DD MMM YYYY, HH:mm z')
+}
+
+// humann readable descriptive date from 'YYYY-MM-DD' or text date
+export function formatDescriptiveDate(dateOrIso) {
+  const normDate = parseDateInput(dateOrIso)
+  if (!normDate) return ''
+  const m = moment.utc(normDate, 'YYYY-MM-DD')
+  return m.isValid() ? m.format('D MMMM YYYY') : ''
 }

@@ -20,6 +20,7 @@ import {
   mdiViewGridOutline,
   mdiAccountGroupOutline,
   mdiAutoFix,
+  mdiCalendar,
 } from '@mdi/js'
 import { AUTO_METRICS, AUTO_OPERATORS } from '../utils/autoScore'
 
@@ -41,6 +42,7 @@ import {
 import {
   browserTimeZone,
   canonicalZone,
+  formatDescriptiveDate,
   timezoneList,
   utcIsoToZoned,
   zonedToUtcIso,
@@ -216,7 +218,61 @@ const endBeforeStart = computed(() => {
   if (!f.start_date || !f.end_date) return false
   const start = zonedToUtcIso(f.start_date, f.start_time || '00:00', f.timezone)
   const end = zonedToUtcIso(f.end_date, f.end_time || '23:59', f.timezone)
+  if (!start || !end) return false
   return new Date(end) < new Date(start)
+})
+
+const startDateMenu = ref(false)
+const endDateMenu = ref(false)
+const lockedEndDateMenu = ref(false)
+
+function toDateStr(val) {
+  if (!val) return ''
+  const item = Array.isArray(val) ? val[0] : val
+  if (!item) return ''
+  const d = new Date(item)
+  if (isNaN(d.getTime())) return ''
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function onStartDatePick(val) {
+  const s = toDateStr(val)
+  if (s) {
+    form.value.start_date = s
+    startDateMenu.value = false
+  }
+}
+
+function onEndDatePick(val) {
+  const s = toDateStr(val)
+  if (s) {
+    form.value.end_date = s
+    endDateMenu.value = false
+    lockedEndDateMenu.value = false
+  }
+}
+
+const startDateHint = computed(() => {
+  if (form.value.start_date) {
+    const desc = formatDescriptiveDate(form.value.start_date)
+    return desc
+      ? `${desc} (${form.value.start_time || '00:00'}, ${form.value.timezone})`
+      : 'Invalid date format'
+  }
+  return 'YYYY-MM-DD or 04 september 2006'
+})
+
+const endDateHint = computed(() => {
+  if (form.value.end_date) {
+    const desc = formatDescriptiveDate(form.value.end_date)
+    return desc
+      ? `${desc} (${form.value.end_time || '23:59'}, ${form.value.timezone})`
+      : 'Invalid date format'
+  }
+  return 'YYYY-MM-DD or 04 september 2006'
 })
 
 const valid = computed(() => {
@@ -224,6 +280,8 @@ const valid = computed(() => {
   if (locked.value) return true // only organizers/jury/end-date, else acceptable
   const f = form.value
   if (!(f.name.trim() && f.project_name.trim() && f.start_date)) return false
+  if (!zonedToUtcIso(f.start_date, f.start_time, f.timezone)) return false
+  if (f.end_date && !zonedToUtcIso(f.end_date, f.end_time, f.timezone)) return false
   if (!(Number.isInteger(Number(f.reviews_required)) && Number(f.reviews_required) >= 1))
     return false
   if (scoringMode.value === 'multi_parameter') {
@@ -368,10 +426,34 @@ async function submit() {
               <v-text-field
                 v-model="form.end_date"
                 label="End Date"
-                type="date"
+                placeholder="YYYY-MM-DD or 04 september 2006"
                 variant="outlined"
                 density="comfortable"
-              />
+                :hint="endDateHint"
+                persistent-hint
+              >
+                <template #append-inner>
+                  <v-menu
+                    v-model="lockedEndDateMenu"
+                    :close-on-content-click="false"
+                    location="bottom end"
+                  >
+                    <template #activator="{ props: menuProps }">
+                      <v-btn
+                        v-bind="menuProps"
+                        :icon="mdiCalendar"
+                        variant="text"
+                        density="compact"
+                        size="small"
+                      />
+                    </template>
+                    <v-date-picker
+                      hide-header
+                      @update:model-value="onEndDatePick"
+                    />
+                  </v-menu>
+                </template>
+              </v-text-field>
             </v-col>
             <v-col cols="4" md="4">
               <v-text-field
@@ -477,10 +559,34 @@ async function submit() {
               <v-text-field
                 v-model="form.start_date"
                 label="Start Date *"
-                type="date"
+                placeholder="YYYY-MM-DD or 04 september 2006"
                 variant="outlined"
                 density="comfortable"
-              />
+                :hint="startDateHint"
+                persistent-hint
+              >
+                <template #append-inner>
+                  <v-menu
+                    v-model="startDateMenu"
+                    :close-on-content-click="false"
+                    location="bottom end"
+                  >
+                    <template #activator="{ props: menuProps }">
+                      <v-btn
+                        v-bind="menuProps"
+                        :icon="mdiCalendar"
+                        variant="text"
+                        density="compact"
+                        size="small"
+                      />
+                    </template>
+                    <v-date-picker
+                      hide-header
+                      @update:model-value="onStartDatePick"
+                    />
+                  </v-menu>
+                </template>
+              </v-text-field>
             </v-col>
             <v-col cols="4" md="4">
               <v-text-field
@@ -498,10 +604,34 @@ async function submit() {
               <v-text-field
                 v-model="form.end_date"
                 label="End Date"
-                type="date"
+                placeholder="YYYY-MM-DD or 04 september 2006"
                 variant="outlined"
                 density="comfortable"
-              />
+                :hint="endDateHint"
+                persistent-hint
+              >
+                <template #append-inner>
+                  <v-menu
+                    v-model="endDateMenu"
+                    :close-on-content-click="false"
+                    location="bottom end"
+                  >
+                    <template #activator="{ props: menuProps }">
+                      <v-btn
+                        v-bind="menuProps"
+                        :icon="mdiCalendar"
+                        variant="text"
+                        density="compact"
+                        size="small"
+                      />
+                    </template>
+                    <v-date-picker
+                      hide-header
+                      @update:model-value="onEndDatePick"
+                    />
+                  </v-menu>
+                </template>
+              </v-text-field>
             </v-col>
             <v-col cols="4" md="4">
               <v-text-field
@@ -935,7 +1065,7 @@ async function submit() {
           density="compact"
           class="mt-4"
         >
-          End date must be on or after the start date.
+          End date ({{ formatDescriptiveDate(form.end_date) || form.end_date }}) must be on or after the start date ({{ formatDescriptiveDate(form.start_date) || form.start_date }}).
         </v-alert>
 
         <v-alert v-if="error" type="error" variant="tonal" class="mt-4">

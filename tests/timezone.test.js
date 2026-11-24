@@ -13,6 +13,8 @@ import {
   zonedToUtcIso,
   utcIsoToZoned,
   formatInZone,
+  parseDateInput,
+  formatDescriptiveDate,
 } from '../src/utils/timezone.js'
 
 // --- zonedToUtcIso: wall-clock in a zone -> absolute UTC instant ---
@@ -243,4 +245,26 @@ test('browserTimeZone returns a usable, resolvable zone', () => {
   assert.ok(tz.length > 0)
   // Must be accepted by Intl (i.e. round-trippable).
   assert.doesNotThrow(() => zonedToUtcIso('2026-08-24', '12:00', tz))
+})
+
+test('parseDateInput parses YYYY-MM-DD and descriptive dates', () => {
+  assert.equal(parseDateInput('2026-10-31'), '2026-10-31')
+  assert.equal(parseDateInput('31 October 2026'), '2026-10-31')
+  assert.equal(parseDateInput('31 Oct 2026'), '2026-10-31')
+  assert.equal(parseDateInput('5 May 2026'), '2026-05-05')
+  assert.equal(parseDateInput('not-a-date'), null)
+  assert.equal(parseDateInput(null), null)
+})
+
+test('zonedToUtcIso accepts descriptive dates like 31 October 2026', () => {
+  assert.equal(
+    zonedToUtcIso('31 October 2026', '00:00', 'UTC'),
+    '2026-10-31T00:00:00.000Z',
+  )
+})
+
+test('formatDescriptiveDate formats YYYY-MM-DD to D MMMM YYYY', () => {
+  assert.equal(formatDescriptiveDate('2026-10-31'), '31 October 2026')
+  assert.equal(formatDescriptiveDate('31 October 2026'), '31 October 2026')
+  assert.equal(formatDescriptiveDate(null), '')
 })
